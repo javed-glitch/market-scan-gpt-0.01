@@ -34,7 +34,7 @@ jobs:
 
 
           # Edit these to your tickers + timeframe
-          SYMBOLS: PLTR
+          SYMBOLS: QQQ3
           TIMEFRAME: 60m
           LOOKBACK_BARS: "200"
 
