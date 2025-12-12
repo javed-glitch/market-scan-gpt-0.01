@@ -3,7 +3,7 @@ name: Market Scan (RSI/MACD) -> GPT
 on:
   schedule:
     # Runs every 15 minutes, Mon–Fri (UTC)
-    - cron: "*/15 * * * 1-5"
+ - cron: "0 14 * * 1-5"
   workflow_dispatch: {}
 
 jobs:
@@ -28,8 +28,8 @@ jobs:
       - name: Run scan
         env:
           PROVIDER: Alphavantage
-          SYMBOLS: TSLA, PLTR, NVDA, QQQ3
-          TIMEFRAME: 15m
+          SYMBOLS: TSLA, 
+          TIMEFRAME: 60m
           LOOKBACK_BARS: "200"
 
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
