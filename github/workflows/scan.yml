@@ -34,8 +34,8 @@ jobs:
 
 
           # Edit these to your tickers + timeframe
-          SYMBOLS: AAPL,MSFT
-          TIMEFRAME: 15m
+          SYMBOLS: PLTR
+          TIMEFRAME: 60m
           LOOKBACK_BARS: "200"
 
           # Keys from GitHub Secrets
