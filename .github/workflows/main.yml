@@ -27,13 +27,12 @@ jobs:
 
       - name: Run scan
         env:
-          PROVIDER: finnhub
-          SYMBOLS: AAPL,MSFT
+          PROVIDER: Alphavantage
+          SYMBOLS: TSLA, PLTR, NVDA, QQQ3
           TIMEFRAME: 15m
           LOOKBACK_BARS: "200"
 
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
 
           OPENAI_MODEL: gpt-5.2
