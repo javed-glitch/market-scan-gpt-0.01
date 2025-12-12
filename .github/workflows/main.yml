@@ -28,7 +28,7 @@ jobs:
       - name: Run scan
         env:
           PROVIDER: Alphavantage
-          SYMBOLS: TSLA, 
+          SYMBOLS: QQQ3, 
           TIMEFRAME: 60m
           LOOKBACK_BARS: "200"
 
