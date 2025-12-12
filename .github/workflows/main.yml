@@ -1,0 +1,41 @@
+name: Market Scan (RSI/MACD) -> GPT
+
+on:
+  schedule:
+    # Runs every 15 minutes, Mon–Fri (UTC)
+    - cron: "*/15 * * * 1-5"
+  workflow_dispatch: {}
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run scan
+        env:
+          PROVIDER: finnhub
+          SYMBOLS: AAPL,MSFT
+          TIMEFRAME: 15m
+          LOOKBACK_BARS: "200"
+
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+
+          OPENAI_MODEL: gpt-5.2
+        run: |
+          python main.py
