@@ -29,7 +29,7 @@ jobs:
         env:
           SYMBOLS: NVDA,AMAT,PLTR,QQQ
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: gpt-5.2
+          OPENAI_MODEL: gpt-4o-mini
         run: |
           python main.py
 
