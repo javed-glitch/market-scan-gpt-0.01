@@ -2,6 +2,7 @@ import os
 import json
 import time
 import io
+import re
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -16,7 +17,7 @@ from openai import OpenAI
 # -----------------------------
 SYMBOLS = [s.strip().upper() for s in os.getenv("SYMBOLS", "NVDA").split(",") if s.strip()]
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()  # default to something widely available
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
 LOG_DIR = "logs"
 
 
@@ -28,6 +29,9 @@ def utc_now_iso() -> str:
 
 def ensure_dirs():
     os.makedirs(LOG_DIR, exist_ok=True)
+
+def safe_filename(s: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", s)
 
 
 # -----------------------------
@@ -63,13 +67,11 @@ def infer_levels(df: pd.DataFrame, bars: int = 120):
 # STOOQ FETCH (DAILY)
 # -----------------------------
 def stooq_symbol(symbol: str) -> str:
-    # Stooq typically uses .us for US tickers/ETFs
     return f"{symbol.lower()}.us"
 
 def fetch_stooq_daily(symbol: str) -> pd.DataFrame:
     s = stooq_symbol(symbol)
     url = f"https://stooq.com/q/d/l/?s={urllib.parse.quote(s)}&i=d"
-
     with urllib.request.urlopen(url, timeout=30) as resp:
         raw = resp.read().decode("utf-8", errors="replace")
 
@@ -116,7 +118,7 @@ def build_tf_snapshot(df: pd.DataFrame, tf_name: str) -> dict:
     supports, resistances = infer_levels(df)
 
     tail = df.tail(15).copy()
-    tail["t"] = tail["t"].astype(str)  # ensure JSON serializable
+    tail["t"] = tail["t"].astype(str)  # JSON-serializable
 
     return {
         "timeframe": tf_name,
@@ -132,9 +134,9 @@ def build_tf_snapshot(df: pd.DataFrame, tf_name: str) -> dict:
 # GPT PROMPTS
 # -----------------------------
 SYSTEM_PROMPT = (
-    "You are a trading analysis assistant. You do NOT browse the web. "
-    "You ONLY use the JSON provided. Return ONLY valid JSON. "
-    "Be concise, deterministic, and practical. No hype. No emojis."
+    "You are a trading analysis assistant. "
+    "You do NOT browse the web. You ONLY use the JSON provided. "
+    "Return ONLY valid JSON. No markdown. No code fences. No extra text."
 )
 
 USER_PROMPT_TEMPLATE = """Analyze this market snapshot for early signals (daily/weekly only).
@@ -190,19 +192,62 @@ def call_gpt(snapshot: dict) -> str:
             {"role": "user", "content": prompt},
         ],
     )
-    return resp.output_text.strip()
+
+    # output_text can be empty in some edge cases; fall back to stringifying output blocks
+    text = (resp.output_text or "").strip()
+    if text:
+        return text
+
+    # last resort: try to extract text from response structure
+    try:
+        parts = []
+        for item in getattr(resp, "output", []) or []:
+            for c in getattr(item, "content", []) or []:
+                t = getattr(c, "text", None)
+                if t:
+                    parts.append(t)
+        return "\n".join(parts).strip()
+    except Exception:
+        return ""
+
+
+# -----------------------------
+# PARSING HARDENING
+# -----------------------------
+def extract_json_object(text: str) -> dict:
+    """
+    Try:
+      1) strict json.loads
+      2) extract first {...} block and load
+    """
+    if not text or not text.strip():
+        raise json.JSONDecodeError("Empty response", text, 0)
+
+    s = text.strip()
+
+    # 1) direct
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        pass
+
+    # 2) find a JSON object inside the text
+    start = s.find("{")
+    end = s.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = s[start:end+1]
+        return json.loads(candidate)
+
+    raise json.JSONDecodeError("No JSON object found", s, 0)
 
 
 # -----------------------------
 # HUMAN SUMMARY
 # -----------------------------
 def _fmt_levels(vals) -> str:
-    try:
-        if not vals:
-            return "-"
-        return ", ".join(str(x) for x in vals[:3])
-    except Exception:
+    if not vals:
         return "-"
+    return ", ".join(str(x) for x in vals[:3])
 
 def build_human_summary(run_ts: str, results: list[dict], failures: list[str]) -> str:
     lines = []
@@ -215,14 +260,14 @@ def build_human_summary(run_ts: str, results: list[dict], failures: list[str]) -
             lines.append(f"  - {f}")
         lines.append("-" * 60)
 
+    tf_order = {"1D": 1, "1W": 2}
+
     for r in results:
         symbol = r.get("symbol", "UNKNOWN")
         overall = str(r.get("overall_bias", "neutral")).upper()
         lines.append(f"\n{symbol} — Overall: {overall}")
         lines.append("-" * 60)
 
-        # sort signals by timeframe order
-        tf_order = {"1D": 1, "1W": 2}
         sigs = r.get("signals", []) or []
         sigs = sorted(sigs, key=lambda s: tf_order.get(str(s.get("timeframe", "")), 99))
 
@@ -232,7 +277,7 @@ def build_human_summary(run_ts: str, results: list[dict], failures: list[str]) -
             conf = s.get("confidence_0_100", "?")
             price = s.get("price", "?")
             rsi = s.get("rsi14", "?")
-            macd = s.get("macd", {})
+            macd = s.get("macd", {}) or {}
             sup = s.get("support", [])
             res = s.get("resistance", [])
             why = s.get("why", []) or []
@@ -240,8 +285,7 @@ def build_human_summary(run_ts: str, results: list[dict], failures: list[str]) -
             nxt = s.get("next_action", "")
 
             lines.append(f"{tf}: {setup} | conf {conf}/100 | price {price} | RSI {rsi}")
-            if isinstance(macd, dict):
-                lines.append(f"MACD: {macd.get('macd')} / Signal: {macd.get('signal')} / Hist: {macd.get('hist')}")
+            lines.append(f"MACD: {macd.get('macd')} / Signal: {macd.get('signal')} / Hist: {macd.get('hist')}")
             lines.append(f"Support: {_fmt_levels(sup)}")
             lines.append(f"Resist:  {_fmt_levels(res)}")
             if why:
@@ -265,8 +309,8 @@ def build_human_summary(run_ts: str, results: list[dict], failures: list[str]) -
 # -----------------------------
 # RUN
 # -----------------------------
-def run_symbol(symbol: str):
-    time.sleep(0.5)  # be polite
+def run_symbol(symbol: str, run_ts: str):
+    time.sleep(0.4)  # polite
 
     daily = fetch_stooq_daily(symbol)
     weekly = resample_weekly_from_daily(daily)
@@ -276,10 +320,9 @@ def run_symbol(symbol: str):
     if len(weekly) < 60:
         raise RuntimeError(f"Not enough weekly data for {symbol}: {len(weekly)} rows")
 
-    now = utc_now_iso()
     snapshot = {
-        "run_id": f"{now}_{symbol}",
-        "timestamp_utc": now,
+        "run_id": f"{run_ts}_{symbol}",
+        "timestamp_utc": run_ts,
         "symbol": symbol,
         "data": {
             "1D": build_tf_snapshot(daily.tail(260), "1D"),
@@ -289,19 +332,23 @@ def run_symbol(symbol: str):
 
     gpt_out = call_gpt(snapshot)
 
-    # Write per-symbol logs
-    safe_ts = now.replace(":", "-")
+    # Save logs per symbol (snapshot + raw + parsed)
+    safe_ts = safe_filename(run_ts.replace(":", "-"))
     base = f"{LOG_DIR}/{safe_ts}_{symbol}"
 
     with open(base + "_snapshot.json", "w", encoding="utf-8") as f:
         json.dump(snapshot, f, ensure_ascii=False, indent=2, default=str)
 
-    with open(base + "_gpt.json", "w", encoding="utf-8") as f:
+    # Always keep raw output for debugging
+    with open(base + "_gpt_raw.txt", "w", encoding="utf-8") as f:
         f.write(gpt_out)
 
-    # Parse GPT output into object for summary
-    parsed = json.loads(gpt_out)
-    return now, snapshot, parsed
+    parsed = extract_json_object(gpt_out)
+
+    with open(base + "_gpt.json", "w", encoding="utf-8") as f:
+        json.dump(parsed, f, ensure_ascii=False, indent=2, default=str)
+
+    return parsed
 
 
 def main():
@@ -309,7 +356,6 @@ def main():
         raise RuntimeError("Missing OPENAI_API_KEY")
 
     ensure_dirs()
-
     run_ts = utc_now_iso()
 
     results: list[dict] = []
@@ -317,22 +363,22 @@ def main():
 
     for sym in SYMBOLS:
         try:
-            _, _, parsed = run_symbol(sym)
+            parsed = run_symbol(sym, run_ts)
             results.append(parsed)
         except Exception as e:
             failures.append(f"{sym}: {repr(e)}")
 
-    # Always write a summary, even if some symbols failed
+    # Always write summary (even if failures)
     summary = build_human_summary(run_ts, results, failures)
     with open(f"{LOG_DIR}/summary.txt", "w", encoding="utf-8") as f:
         f.write(summary)
 
-    # Print summary into Actions logs (easy reading)
     print("\n===== HUMAN SUMMARY (logs/summary.txt) =====\n")
     print(summary)
     print("\n===== END SUMMARY =====\n")
 
-    if failures:
+    # Fail the job if everything failed (so you notice), but keep logs
+    if len(results) == 0 and failures:
         raise RuntimeError("Errors:\n" + "\n".join(failures))
 
 
