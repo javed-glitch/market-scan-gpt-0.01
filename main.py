@@ -4,18 +4,21 @@ import time
 import io
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
+
 import numpy as np
 import pandas as pd
-from datetime import datetime, timezone
 from openai import OpenAI
+
 
 # -----------------------------
 # CONFIG
 # -----------------------------
 SYMBOLS = [s.strip().upper() for s in os.getenv("SYMBOLS", "NVDA").split(",") if s.strip()]
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.2").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()  # default to something widely available
 LOG_DIR = "logs"
+
 
 # -----------------------------
 # UTIL
@@ -26,6 +29,7 @@ def utc_now_iso() -> str:
 def ensure_dirs():
     os.makedirs(LOG_DIR, exist_ok=True)
 
+
 # -----------------------------
 # INDICATORS
 # -----------------------------
@@ -33,7 +37,6 @@ def compute_rsi(close: pd.Series, period: int = 14) -> float:
     delta = close.diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
-    # Wilder smoothing (EMA with alpha=1/period)
     avg_gain = gain.ewm(alpha=1/period, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1/period, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
@@ -53,14 +56,14 @@ def infer_levels(df: pd.DataFrame, bars: int = 120):
     support = float(t["l"].min())
     resistance = float(t["h"].max())
     mid = float((support + resistance) / 2.0)
-    # Return 2 support candidates (low + mid) and 1 resistance candidate
     return [round(support, 4), round(mid, 4)], [round(resistance, 4)]
+
 
 # -----------------------------
 # STOOQ FETCH (DAILY)
 # -----------------------------
 def stooq_symbol(symbol: str) -> str:
-    # Stooq typically uses .us suffix for US stocks/ETFs
+    # Stooq typically uses .us for US tickers/ETFs
     return f"{symbol.lower()}.us"
 
 def fetch_stooq_daily(symbol: str) -> pd.DataFrame:
@@ -70,10 +73,8 @@ def fetch_stooq_daily(symbol: str) -> pd.DataFrame:
     with urllib.request.urlopen(url, timeout=30) as resp:
         raw = resp.read().decode("utf-8", errors="replace")
 
-    # Parse CSV safely
     df = pd.read_csv(io.StringIO(raw))
 
-    # Expected columns: Date, Open, High, Low, Close, Volume
     if df.empty or "Date" not in df.columns:
         raise RuntimeError(f"Stooq returned no data for {symbol} ({s}). Response head:\n{raw[:200]}")
 
@@ -94,7 +95,6 @@ def fetch_stooq_daily(symbol: str) -> pd.DataFrame:
     return df
 
 def resample_weekly_from_daily(df_daily: pd.DataFrame) -> pd.DataFrame:
-    # Weekly bars ending Friday (common for equities)
     d = df_daily.set_index("t").sort_index()
     out = d.resample("W-FRI").agg({
         "o": "first",
@@ -105,6 +105,10 @@ def resample_weekly_from_daily(df_daily: pd.DataFrame) -> pd.DataFrame:
     }).dropna()
     return out.reset_index()
 
+
+# -----------------------------
+# SNAPSHOT BUILD
+# -----------------------------
 def build_tf_snapshot(df: pd.DataFrame, tf_name: str) -> dict:
     close = df["c"].astype(float)
     rsi = compute_rsi(close, 14)
@@ -112,8 +116,7 @@ def build_tf_snapshot(df: pd.DataFrame, tf_name: str) -> dict:
     supports, resistances = infer_levels(df)
 
     tail = df.tail(15).copy()
-    # IMPORTANT: make timestamps JSON-serializable
-    tail["t"] = tail["t"].astype(str)
+    tail["t"] = tail["t"].astype(str)  # ensure JSON serializable
 
     return {
         "timeframe": tf_name,
@@ -123,6 +126,7 @@ def build_tf_snapshot(df: pd.DataFrame, tf_name: str) -> dict:
         "levels_hint": {"support": supports, "resistance": resistances},
         "candles_tail": tail.to_dict(orient="records"),
     }
+
 
 # -----------------------------
 # GPT PROMPTS
@@ -177,7 +181,7 @@ def call_gpt(snapshot: dict) -> str:
     client = OpenAI(api_key=OPENAI_API_KEY)
     prompt = USER_PROMPT_TEMPLATE.replace(
         "{SNAPSHOT_JSON}",
-        json.dumps(snapshot, ensure_ascii=False, default=str)  # extra safety
+        json.dumps(snapshot, ensure_ascii=False, default=str)
     )
     resp = client.responses.create(
         model=OPENAI_MODEL,
@@ -188,12 +192,81 @@ def call_gpt(snapshot: dict) -> str:
     )
     return resp.output_text.strip()
 
+
+# -----------------------------
+# HUMAN SUMMARY
+# -----------------------------
+def _fmt_levels(vals) -> str:
+    try:
+        if not vals:
+            return "-"
+        return ", ".join(str(x) for x in vals[:3])
+    except Exception:
+        return "-"
+
+def build_human_summary(run_ts: str, results: list[dict], failures: list[str]) -> str:
+    lines = []
+    lines.append(f"Market Scan — {run_ts} UTC")
+    lines.append("=" * 60)
+
+    if failures:
+        lines.append("Failures:")
+        for f in failures:
+            lines.append(f"  - {f}")
+        lines.append("-" * 60)
+
+    for r in results:
+        symbol = r.get("symbol", "UNKNOWN")
+        overall = str(r.get("overall_bias", "neutral")).upper()
+        lines.append(f"\n{symbol} — Overall: {overall}")
+        lines.append("-" * 60)
+
+        # sort signals by timeframe order
+        tf_order = {"1D": 1, "1W": 2}
+        sigs = r.get("signals", []) or []
+        sigs = sorted(sigs, key=lambda s: tf_order.get(str(s.get("timeframe", "")), 99))
+
+        for s in sigs:
+            tf = s.get("timeframe", "?")
+            setup = str(s.get("setup", "neutral")).upper()
+            conf = s.get("confidence_0_100", "?")
+            price = s.get("price", "?")
+            rsi = s.get("rsi14", "?")
+            macd = s.get("macd", {})
+            sup = s.get("support", [])
+            res = s.get("resistance", [])
+            why = s.get("why", []) or []
+            inv = s.get("invalidation", "")
+            nxt = s.get("next_action", "")
+
+            lines.append(f"{tf}: {setup} | conf {conf}/100 | price {price} | RSI {rsi}")
+            if isinstance(macd, dict):
+                lines.append(f"MACD: {macd.get('macd')} / Signal: {macd.get('signal')} / Hist: {macd.get('hist')}")
+            lines.append(f"Support: {_fmt_levels(sup)}")
+            lines.append(f"Resist:  {_fmt_levels(res)}")
+            if why:
+                lines.append(f"Why: {why[0]}")
+            if inv:
+                lines.append(f"Invalidation: {inv}")
+            if nxt:
+                lines.append(f"Next: {nxt}")
+            lines.append("")
+
+        notes = r.get("watchlist_notes", []) or []
+        if notes:
+            lines.append("Notes:")
+            for n in notes[:5]:
+                lines.append(f"  - {n}")
+
+    lines.append("\nEnd.")
+    return "\n".join(lines)
+
+
 # -----------------------------
 # RUN
 # -----------------------------
 def run_symbol(symbol: str):
-    # light pause to be polite to Stooq
-    time.sleep(0.5)
+    time.sleep(0.5)  # be polite
 
     daily = fetch_stooq_daily(symbol)
     weekly = resample_weekly_from_daily(daily)
@@ -216,17 +289,20 @@ def run_symbol(symbol: str):
 
     gpt_out = call_gpt(snapshot)
 
-    # Write logs
+    # Write per-symbol logs
     safe_ts = now.replace(":", "-")
     base = f"{LOG_DIR}/{safe_ts}_{symbol}"
+
     with open(base + "_snapshot.json", "w", encoding="utf-8") as f:
         json.dump(snapshot, f, ensure_ascii=False, indent=2, default=str)
+
     with open(base + "_gpt.json", "w", encoding="utf-8") as f:
         f.write(gpt_out)
 
-    print(f"\n===== {symbol} GPT OUTPUT =====")
-    print(gpt_out)
-    print("==============================\n")
+    # Parse GPT output into object for summary
+    parsed = json.loads(gpt_out)
+    return now, snapshot, parsed
+
 
 def main():
     if not OPENAI_API_KEY:
@@ -234,15 +310,31 @@ def main():
 
     ensure_dirs()
 
-    errors = []
+    run_ts = utc_now_iso()
+
+    results: list[dict] = []
+    failures: list[str] = []
+
     for sym in SYMBOLS:
         try:
-            run_symbol(sym)
+            _, _, parsed = run_symbol(sym)
+            results.append(parsed)
         except Exception as e:
-            errors.append(f"{sym}: {repr(e)}")
+            failures.append(f"{sym}: {repr(e)}")
 
-    if errors:
-        raise RuntimeError("Errors:\n" + "\n".join(errors))
+    # Always write a summary, even if some symbols failed
+    summary = build_human_summary(run_ts, results, failures)
+    with open(f"{LOG_DIR}/summary.txt", "w", encoding="utf-8") as f:
+        f.write(summary)
+
+    # Print summary into Actions logs (easy reading)
+    print("\n===== HUMAN SUMMARY (logs/summary.txt) =====\n")
+    print(summary)
+    print("\n===== END SUMMARY =====\n")
+
+    if failures:
+        raise RuntimeError("Errors:\n" + "\n".join(failures))
+
 
 if __name__ == "__main__":
     main()
