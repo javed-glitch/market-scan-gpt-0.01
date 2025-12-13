@@ -1,15 +1,23 @@
-import os, json, time, requests
+import os, json, time, urllib.parse, urllib.request
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 from openai import OpenAI
 
 SYMBOLS = [s.strip().upper() for s in os.getenv("SYMBOLS", "NVDA").split(",") if s.strip()]
-FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.2").strip()
 LOG_DIR = "logs"
 
+def utc_now_iso():
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+def ensure_dirs():
+    os.makedirs(LOG_DIR, exist_ok=True)
+
+# -----------------------------
+# Indicators
+# -----------------------------
 def compute_rsi(close: pd.Series, period: int = 14) -> float:
     delta = close.diff()
     gain = delta.clip(lower=0)
@@ -28,35 +36,48 @@ def compute_macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int =
     hist = macd - sig
     return float(macd.iloc[-1]), float(sig.iloc[-1]), float(hist.iloc[-1])
 
-def infer_levels(df: pd.DataFrame, bars: int = 80):
+def infer_levels(df: pd.DataFrame, bars: int = 120):
     t = df.tail(bars)
     support = float(t["l"].min())
     resistance = float(t["h"].max())
     mid = float((support + resistance) / 2.0)
+    # return 3 inferred zones (support, mid, resistance-ish)
     return [round(support, 4), round(mid, 4)], [round(resistance, 4)]
 
-def resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
-    d = df.set_index("t").sort_index()
-    out = d.resample(rule).agg({"o":"first","h":"max","l":"min","c":"last","v":"sum"}).dropna()
-    return out.reset_index()
+# -----------------------------
+# Stooq fetch (Daily)
+# -----------------------------
+def stooq_symbol(symbol: str) -> str:
+    # Stooq uses .us for US stocks/ETFs typically
+    return f"{symbol.lower()}.us"
 
-def finnhub_candles(symbol: str, resolution: str, bars: int) -> pd.DataFrame:
-    # Finnhub resolutions: 60, D, W (we use those)
-    sec_per_bar = {"60": 3600, "D": 86400, "W": 604800}[resolution]
-    now = int(time.time())
-    frm = now - (bars * sec_per_bar) - (10 * sec_per_bar)
+def fetch_stooq_daily(symbol: str) -> pd.DataFrame:
+    s = stooq_symbol(symbol)
+    url = f"https://stooq.com/q/d/l/?s={urllib.parse.quote(s)}&i=d"
+    with urllib.request.urlopen(url, timeout=30) as resp:
+        raw = resp.read().decode("utf-8")
 
-    url = "https://finnhub.io/api/v1/stock/candle"
-    params = {"symbol": symbol, "resolution": resolution, "from": frm, "to": now, "token": FINNHUB_API_KEY}
-    r = requests.get(url, params=params, timeout=30)
-    r.raise_for_status()
-    data = r.json()
-    if data.get("s") != "ok":
-        raise RuntimeError(f"Finnhub candle fetch failed for {symbol} {resolution}: {data}")
+    df = pd.read_csv(pd.compat.StringIO(raw)) if hasattr(pd.compat, "StringIO") else pd.read_csv(pd.io.common.StringIO(raw))
+    # Columns: Date, Open, High, Low, Close, Volume
+    if df.empty or "Date" not in df.columns:
+        raise RuntimeError(f"Stooq returned no data for {symbol} ({s})")
 
-    df = pd.DataFrame({"t": data["t"], "o": data["o"], "h": data["h"], "l": data["l"], "c": data["c"], "v": data.get("v",[0]*len(data["t"]))})
-    df["t"] = pd.to_datetime(df["t"], unit="s", utc=True)
+    df = df.rename(columns={
+        "Date": "t",
+        "Open": "o",
+        "High": "h",
+        "Low": "l",
+        "Close": "c",
+        "Volume": "v",
+    })
+    df["t"] = pd.to_datetime(df["t"], utc=True)
+    df = df.dropna(subset=["o", "h", "l", "c"]).sort_values("t")
     return df
+
+def resample_weekly_from_daily(df: pd.DataFrame) -> pd.DataFrame:
+    d = df.set_index("t").sort_index()
+    out = d.resample("W-FRI").agg({"o":"first","h":"max","l":"min","c":"last","v":"sum"}).dropna()
+    return out.reset_index()
 
 def build_tf_snapshot(df: pd.DataFrame, tf_name: str) -> dict:
     close = df["c"].astype(float)
@@ -72,13 +93,16 @@ def build_tf_snapshot(df: pd.DataFrame, tf_name: str) -> dict:
         "candles_tail": df.tail(15).to_dict(orient="records"),
     }
 
+# -----------------------------
+# GPT
+# -----------------------------
 SYSTEM_PROMPT = (
     "You are a trading analysis assistant. You do NOT browse the web. "
     "You ONLY use the JSON provided. Return ONLY valid JSON. No hype. No emojis."
 )
 
-USER_PROMPT_TEMPLATE = """Analyze this multi-timeframe market snapshot for early signals.
-Timeframes: 2H, 4H, 1D, 1W.
+USER_PROMPT_TEMPLATE = """Analyze this market snapshot for early signals (daily/weekly only).
+Timeframes: 1D, 1W.
 
 Rules:
 - Buy-bias when RSI(14) < 28
@@ -96,7 +120,7 @@ Output ONLY JSON in this schema:
   "symbol": string,
   "signals": [
     {
-      "timeframe": "2H"|"4H"|"1D"|"1W",
+      "timeframe": "1D"|"1W",
       "price": number,
       "rsi14": number,
       "macd": {"macd": number, "signal": number, "hist": number},
@@ -129,21 +153,17 @@ def call_gpt(snapshot: dict) -> str:
     )
     return resp.output_text.strip()
 
-def utc_now_iso():
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-
-def ensure_dirs():
-    os.makedirs(LOG_DIR, exist_ok=True)
-
 def run_symbol(symbol: str):
-    time.sleep(2)  # polite spacing
+    # be polite to avoid any transient rate blocks
+    time.sleep(1)
 
-    intraday_60 = finnhub_candles(symbol, "60", 400)
-    daily = finnhub_candles(symbol, "D", 400)
-    weekly = finnhub_candles(symbol, "W", 260)
+    daily = fetch_stooq_daily(symbol)
+    weekly = resample_weekly_from_daily(daily)
 
-    tf_2h = resample_ohlcv(intraday_60, "2H")
-    tf_4h = resample_ohlcv(intraday_60, "4H")
+    if len(daily) < 120:
+        raise RuntimeError(f"Not enough daily data for {symbol}: {len(daily)} rows")
+    if len(weekly) < 60:
+        raise RuntimeError(f"Not enough weekly data for {symbol}: {len(weekly)} rows")
 
     now = utc_now_iso()
     snapshot = {
@@ -151,10 +171,8 @@ def run_symbol(symbol: str):
         "timestamp_utc": now,
         "symbol": symbol,
         "data": {
-            "2H": build_tf_snapshot(tf_2h.tail(220), "2H"),
-            "4H": build_tf_snapshot(tf_4h.tail(220), "4H"),
-            "1D": build_tf_snapshot(daily.tail(220), "1D"),
-            "1W": build_tf_snapshot(weekly.tail(220), "1W"),
+            "1D": build_tf_snapshot(daily.tail(260), "1D"),
+            "1W": build_tf_snapshot(weekly.tail(260), "1W"),
         }
     }
 
@@ -174,8 +192,6 @@ def run_symbol(symbol: str):
 def main():
     if not OPENAI_API_KEY:
         raise RuntimeError("Missing OPENAI_API_KEY")
-    if not FINNHUB_API_KEY:
-        raise RuntimeError("Missing FINNHUB_API_KEY")
 
     ensure_dirs()
 
