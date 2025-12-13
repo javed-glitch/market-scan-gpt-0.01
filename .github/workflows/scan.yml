@@ -1,7 +1,7 @@
 name: Market Scan (2H/4H/1D/1W) -> GPT (Logged)
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
   schedule:
     # Weekdays at 18:10 UTC
     - cron: "10 18 * * 1-5"
@@ -33,9 +33,47 @@ jobs:
         run: |
           python main.py
 
+      - name: Send Telegram summary
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - << 'PY'
+          import os
+          import pathlib
+          import requests
+
+          path = pathlib.Path("logs/summary.txt")
+          if not path.exists():
+              print("No summary.txt found — skipping Telegram")
+              raise SystemExit(0)
+
+          token = os.environ["TELEGRAM_BOT_TOKEN"]
+          chat_id = os.environ["TELEGRAM_CHAT_ID"]
+          text = path.read_text(encoding="utf-8")
+
+          # Telegram max message size ≈ 4096 chars
+          MAX = 3800
+          chunks = [text[i:i+MAX] for i in range(0, len(text), MAX)]
+
+          for c in chunks:
+              r = requests.post(
+                  f"https://api.telegram.org/bot{token}/sendMessage",
+                  data={
+                      "chat_id": chat_id,
+                      "text": c,
+                      "disable_web_page_preview": True
+                  },
+                  timeout=20
+              )
+              r.raise_for_status()
+
+          print("Telegram summary sent.")
+          PY
+
       - name: Upload logs
         uses: actions/upload-artifact@v4
         with:
           name: market-scan-logs
           path: logs/
-
