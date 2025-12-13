@@ -1,19 +1,13 @@
-import os
-import json
-import time
-import requests
+import os, json, time, requests
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 from openai import OpenAI
 
 SYMBOLS = [s.strip().upper() for s in os.getenv("SYMBOLS", "NVDA").split(",") if s.strip()]
-INTRADAY_INTERVAL = os.getenv("INTRADAY_INTERVAL", "60min").strip()
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.2").strip()
-
-ALPHAVANTAGE_API_KEY = os.getenv("ALPHAVANTAGE_API_KEY", "").strip()
+FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.2").strip()
 LOG_DIR = "logs"
 
 def compute_rsi(close: pd.Series, period: int = 14) -> float:
@@ -39,98 +33,30 @@ def infer_levels(df: pd.DataFrame, bars: int = 80):
     support = float(t["l"].min())
     resistance = float(t["h"].max())
     mid = float((support + resistance) / 2.0)
-    # return 2 supports (support+mid) and 1 resistance (resistance)
     return [round(support, 4), round(mid, 4)], [round(resistance, 4)]
-
-def av_get(params: dict) -> dict:
-    url = "https://www.alphavantage.co/query"
-    params = dict(params)
-    params["apikey"] = ALPHAVANTAGE_API_KEY
-    r = requests.get(url, params=params, timeout=30)
-    r.raise_for_status()
-    data = r.json()
-    if "Information" in data:
-        raise RuntimeError(f"Alpha Vantage: {data['Information']}")
-    if "Note" in data:
-        raise RuntimeError(f"Alpha Vantage: {data['Note']}")
-    if "Error Message" in data:
-        raise RuntimeError(f"Alpha Vantage: {data['Error Message']}")
-    return data
-
-def fetch_intraday(symbol: str, interval: str = "60min") -> pd.DataFrame:
-    data = av_get({
-        "function": "TIME_SERIES_INTRADAY",
-        "symbol": symbol,
-        "interval": interval,
-        "outputsize": "compact",
-    })
-    series_key = None
-    for k in data.keys():
-        if "Time Series" in k:
-            series_key = k
-            break
-    if not series_key:
-        raise RuntimeError(f"Alpha Vantage response missing intraday series for {symbol}: {data}")
-
-    rows = []
-    for ts, v in data[series_key].items():
-        rows.append({
-            "t": pd.to_datetime(ts, utc=True),
-            "o": float(v["1. open"]),
-            "h": float(v["2. high"]),
-            "l": float(v["3. low"]),
-            "c": float(v["4. close"]),
-            "v": float(v["5. volume"]),
-        })
-    return pd.DataFrame(rows).sort_values("t")
-
-def fetch_daily(symbol: str) -> pd.DataFrame:
-    data = av_get({
-        "function": "TIME_SERIES_DAILY_ADJUSTED",
-        "symbol": symbol,
-        "outputsize": "compact",
-    })
-    key = "Time Series (Daily)"
-    if key not in data:
-        raise RuntimeError(f"Alpha Vantage response missing daily series for {symbol}: {data}")
-
-    rows = []
-    for ts, v in data[key].items():
-        rows.append({
-            "t": pd.to_datetime(ts, utc=True),
-            "o": float(v["1. open"]),
-            "h": float(v["2. high"]),
-            "l": float(v["3. low"]),
-            "c": float(v["4. close"]),
-            "v": float(v["6. volume"]),
-        })
-    return pd.DataFrame(rows).sort_values("t")
-
-def fetch_weekly(symbol: str) -> pd.DataFrame:
-    data = av_get({
-        "function": "TIME_SERIES_WEEKLY_ADJUSTED",
-        "symbol": symbol,
-    })
-    key = "Weekly Adjusted Time Series"
-    if key not in data:
-        raise RuntimeError(f"Alpha Vantage response missing weekly series for {symbol}: {data}")
-
-    rows = []
-    for ts, v in data[key].items():
-        rows.append({
-            "t": pd.to_datetime(ts, utc=True),
-            "o": float(v["1. open"]),
-            "h": float(v["2. high"]),
-            "l": float(v["3. low"]),
-            "c": float(v["4. close"]),
-            "v": float(v["6. volume"]),
-        })
-    return pd.DataFrame(rows).sort_values("t")
 
 def resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     d = df.set_index("t").sort_index()
-    out = d.resample(rule).agg({"o": "first", "h": "max", "l": "min", "c": "last", "v": "sum"}).dropna()
+    out = d.resample(rule).agg({"o":"first","h":"max","l":"min","c":"last","v":"sum"}).dropna()
     return out.reset_index()
+
+def finnhub_candles(symbol: str, resolution: str, bars: int) -> pd.DataFrame:
+    # Finnhub resolutions: 60, D, W (we use those)
+    sec_per_bar = {"60": 3600, "D": 86400, "W": 604800}[resolution]
+    now = int(time.time())
+    frm = now - (bars * sec_per_bar) - (10 * sec_per_bar)
+
+    url = "https://finnhub.io/api/v1/stock/candle"
+    params = {"symbol": symbol, "resolution": resolution, "from": frm, "to": now, "token": FINNHUB_API_KEY}
+    r = requests.get(url, params=params, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+    if data.get("s") != "ok":
+        raise RuntimeError(f"Finnhub candle fetch failed for {symbol} {resolution}: {data}")
+
+    df = pd.DataFrame({"t": data["t"], "o": data["o"], "h": data["h"], "l": data["l"], "c": data["c"], "v": data.get("v",[0]*len(data["t"]))})
+    df["t"] = pd.to_datetime(df["t"], unit="s", utc=True)
+    return df
 
 def build_tf_snapshot(df: pd.DataFrame, tf_name: str) -> dict:
     close = df["c"].astype(float)
@@ -148,8 +74,7 @@ def build_tf_snapshot(df: pd.DataFrame, tf_name: str) -> dict:
 
 SYSTEM_PROMPT = (
     "You are a trading analysis assistant. You do NOT browse the web. "
-    "You ONLY use the JSON provided. "
-    "Return ONLY valid JSON. No hype. No emojis."
+    "You ONLY use the JSON provided. Return ONLY valid JSON. No hype. No emojis."
 )
 
 USER_PROMPT_TEMPLATE = """Analyze this multi-timeframe market snapshot for early signals.
@@ -204,22 +129,21 @@ def call_gpt(snapshot: dict) -> str:
     )
     return resp.output_text.strip()
 
-def ensure_dirs():
-    os.makedirs(LOG_DIR, exist_ok=True)
-
 def utc_now_iso():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
+def ensure_dirs():
+    os.makedirs(LOG_DIR, exist_ok=True)
+
 def run_symbol(symbol: str):
-    # be polite to Alpha Vantage free tier
-    time.sleep(15)
+    time.sleep(2)  # polite spacing
 
-    intraday = fetch_intraday(symbol, INTRADAY_INTERVAL)
-    daily = fetch_daily(symbol)
-    weekly = fetch_weekly(symbol)
+    intraday_60 = finnhub_candles(symbol, "60", 400)
+    daily = finnhub_candles(symbol, "D", 400)
+    weekly = finnhub_candles(symbol, "W", 260)
 
-    tf_2h = resample_ohlcv(intraday, "2H")
-    tf_4h = resample_ohlcv(intraday, "4H")
+    tf_2h = resample_ohlcv(intraday_60, "2H")
+    tf_4h = resample_ohlcv(intraday_60, "4H")
 
     now = utc_now_iso()
     snapshot = {
@@ -250,10 +174,8 @@ def run_symbol(symbol: str):
 def main():
     if not OPENAI_API_KEY:
         raise RuntimeError("Missing OPENAI_API_KEY")
-    if not ALPHAVANTAGE_API_KEY:
-        raise RuntimeError("Missing ALPHAVANTAGE_API_KEY")
-    if INTRADAY_INTERVAL != "60min":
-        raise RuntimeError("Set INTRADAY_INTERVAL to 60min for correct 2H/4H resampling.")
+    if not FINNHUB_API_KEY:
+        raise RuntimeError("Missing FINNHUB_API_KEY")
 
     ensure_dirs()
 
