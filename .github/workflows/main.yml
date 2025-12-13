@@ -1,15 +1,15 @@
-name: Market Scan (RSI/MACD) -> GPT
+name: Market Scan (2H/4H/1D/1W) -> GPT (Logged)
 
-on:
 on:
   workflow_dispatch: {}
   schedule:
+    # Weekdays at 18:10 UTC
     - cron: "10 18 * * 1-5"
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repo
@@ -27,14 +27,17 @@ jobs:
 
       - name: Run scan
         env:
-          PROVIDER: Alphavantage
-          SYMBOLS: QQQ3, 
-          TIMEFRAME: 60m
-          LOOKBACK_BARS: "200"
+          SYMBOLS: NVDA,AMAT,PLTR,QQQ
+          INTRADAY_INTERVAL: 60min
 
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
-
           OPENAI_MODEL: gpt-5.2
         run: |
           python main.py
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-scan-logs
+          path: logs/
