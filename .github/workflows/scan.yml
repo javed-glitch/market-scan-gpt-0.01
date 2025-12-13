@@ -1,0 +1,43 @@
+name: Market Scan (2H/4H/1D/1W) -> GPT (Logged)
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Weekdays at 18:10 UTC
+    - cron: "10 18 * * 1-5"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run scan
+        env:
+          SYMBOLS: NVDA,AMAT,PLTR,QQQ
+          INTRADAY_INTERVAL: 60min
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+          OPENAI_MODEL: gpt-5.2
+        run: |
+          python main.py
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-scan-logs
+          path: logs/
+
