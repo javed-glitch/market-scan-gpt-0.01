@@ -1,20 +1,18 @@
-name: Market Scan (RSI/MACD) -> GPT
+name: Market Scan (2H/4H/1D/1W) -> GPT (Logged)
 
 on:
-  schedule:
-    # Runs every 15 minutes, Mon-Fri, UTC
-
-    - cron: "0 14 * * 1-5"
-
   workflow_dispatch: {}
+  schedule:
+    # Weekdays at 18:10 UTC (adjust later)
+    - cron: "10 18 * * 1-5"
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -29,24 +27,18 @@ jobs:
 
       - name: Run scan
         env:
-          # Choose one: finnhub or alphavantage
-          PROVIDER: alphavantage
+          SYMBOLS: TSLA,PLTR,NVDA,QQQ
+          # Uses Alpha Vantage: 60min candles are resampled to 2H & 4H
+          INTRADAY_INTERVAL: 60min
 
-
-          # Edit these to your tickers + timeframe
-          SYMBOLS: QQQ3
-          TIMEFRAME: 60m
-          LOOKBACK_BARS: "200"
-
-          # Keys from GitHub Secrets
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
-
-          # Optional notifications
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-
-          # Model (optional override)
           OPENAI_MODEL: gpt-5.2
         run: |
           python main.py
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-scan-logs
+          path: logs/
