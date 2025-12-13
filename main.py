@@ -1,27 +1,39 @@
-import os, json, time, urllib.parse, urllib.request
+import os
+import json
+import time
+import io
+import urllib.parse
+import urllib.request
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 from openai import OpenAI
 
+# -----------------------------
+# CONFIG
+# -----------------------------
 SYMBOLS = [s.strip().upper() for s in os.getenv("SYMBOLS", "NVDA").split(",") if s.strip()]
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.2").strip()
 LOG_DIR = "logs"
 
-def utc_now_iso():
+# -----------------------------
+# UTIL
+# -----------------------------
+def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 def ensure_dirs():
     os.makedirs(LOG_DIR, exist_ok=True)
 
 # -----------------------------
-# Indicators
+# INDICATORS
 # -----------------------------
 def compute_rsi(close: pd.Series, period: int = 14) -> float:
     delta = close.diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
+    # Wilder smoothing (EMA with alpha=1/period)
     avg_gain = gain.ewm(alpha=1/period, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1/period, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
@@ -41,26 +53,29 @@ def infer_levels(df: pd.DataFrame, bars: int = 120):
     support = float(t["l"].min())
     resistance = float(t["h"].max())
     mid = float((support + resistance) / 2.0)
-    # return 3 inferred zones (support, mid, resistance-ish)
+    # Return 2 support candidates (low + mid) and 1 resistance candidate
     return [round(support, 4), round(mid, 4)], [round(resistance, 4)]
 
 # -----------------------------
-# Stooq fetch (Daily)
+# STOOQ FETCH (DAILY)
 # -----------------------------
 def stooq_symbol(symbol: str) -> str:
-    # Stooq uses .us for US stocks/ETFs typically
+    # Stooq typically uses .us suffix for US stocks/ETFs
     return f"{symbol.lower()}.us"
 
 def fetch_stooq_daily(symbol: str) -> pd.DataFrame:
     s = stooq_symbol(symbol)
     url = f"https://stooq.com/q/d/l/?s={urllib.parse.quote(s)}&i=d"
-    with urllib.request.urlopen(url, timeout=30) as resp:
-        raw = resp.read().decode("utf-8")
 
-    df = pd.read_csv(pd.compat.StringIO(raw)) if hasattr(pd.compat, "StringIO") else pd.read_csv(pd.io.common.StringIO(raw))
-    # Columns: Date, Open, High, Low, Close, Volume
+    with urllib.request.urlopen(url, timeout=30) as resp:
+        raw = resp.read().decode("utf-8", errors="replace")
+
+    # Parse CSV safely
+    df = pd.read_csv(io.StringIO(raw))
+
+    # Expected columns: Date, Open, High, Low, Close, Volume
     if df.empty or "Date" not in df.columns:
-        raise RuntimeError(f"Stooq returned no data for {symbol} ({s})")
+        raise RuntimeError(f"Stooq returned no data for {symbol} ({s}). Response head:\n{raw[:200]}")
 
     df = df.rename(columns={
         "Date": "t",
@@ -70,13 +85,24 @@ def fetch_stooq_daily(symbol: str) -> pd.DataFrame:
         "Close": "c",
         "Volume": "v",
     })
-    df["t"] = pd.to_datetime(df["t"], utc=True)
-    df = df.dropna(subset=["o", "h", "l", "c"]).sort_values("t")
+
+    df["t"] = pd.to_datetime(df["t"], utc=True, errors="coerce")
+    for col in ["o", "h", "l", "c", "v"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(subset=["t", "o", "h", "l", "c"]).sort_values("t")
     return df
 
-def resample_weekly_from_daily(df: pd.DataFrame) -> pd.DataFrame:
-    d = df.set_index("t").sort_index()
-    out = d.resample("W-FRI").agg({"o":"first","h":"max","l":"min","c":"last","v":"sum"}).dropna()
+def resample_weekly_from_daily(df_daily: pd.DataFrame) -> pd.DataFrame:
+    # Weekly bars ending Friday (common for equities)
+    d = df_daily.set_index("t").sort_index()
+    out = d.resample("W-FRI").agg({
+        "o": "first",
+        "h": "max",
+        "l": "min",
+        "c": "last",
+        "v": "sum",
+    }).dropna()
     return out.reset_index()
 
 def build_tf_snapshot(df: pd.DataFrame, tf_name: str) -> dict:
@@ -84,21 +110,27 @@ def build_tf_snapshot(df: pd.DataFrame, tf_name: str) -> dict:
     rsi = compute_rsi(close, 14)
     macd, signal, hist = compute_macd(close, 12, 26, 9)
     supports, resistances = infer_levels(df)
+
+    tail = df.tail(15).copy()
+    # IMPORTANT: make timestamps JSON-serializable
+    tail["t"] = tail["t"].astype(str)
+
     return {
         "timeframe": tf_name,
         "price": float(close.iloc[-1]),
         "rsi14": round(rsi, 4),
         "macd": {"macd": round(macd, 6), "signal": round(signal, 6), "hist": round(hist, 6)},
         "levels_hint": {"support": supports, "resistance": resistances},
-        "candles_tail": df.tail(15).to_dict(orient="records"),
+        "candles_tail": tail.to_dict(orient="records"),
     }
 
 # -----------------------------
-# GPT
+# GPT PROMPTS
 # -----------------------------
 SYSTEM_PROMPT = (
     "You are a trading analysis assistant. You do NOT browse the web. "
-    "You ONLY use the JSON provided. Return ONLY valid JSON. No hype. No emojis."
+    "You ONLY use the JSON provided. Return ONLY valid JSON. "
+    "Be concise, deterministic, and practical. No hype. No emojis."
 )
 
 USER_PROMPT_TEMPLATE = """Analyze this market snapshot for early signals (daily/weekly only).
@@ -143,7 +175,10 @@ Market snapshot JSON:
 
 def call_gpt(snapshot: dict) -> str:
     client = OpenAI(api_key=OPENAI_API_KEY)
-    prompt = USER_PROMPT_TEMPLATE.replace("{SNAPSHOT_JSON}", json.dumps(snapshot, ensure_ascii=False))
+    prompt = USER_PROMPT_TEMPLATE.replace(
+        "{SNAPSHOT_JSON}",
+        json.dumps(snapshot, ensure_ascii=False, default=str)  # extra safety
+    )
     resp = client.responses.create(
         model=OPENAI_MODEL,
         input=[
@@ -153,9 +188,12 @@ def call_gpt(snapshot: dict) -> str:
     )
     return resp.output_text.strip()
 
+# -----------------------------
+# RUN
+# -----------------------------
 def run_symbol(symbol: str):
-    # be polite to avoid any transient rate blocks
-    time.sleep(1)
+    # light pause to be polite to Stooq
+    time.sleep(0.5)
 
     daily = fetch_stooq_daily(symbol)
     weekly = resample_weekly_from_daily(daily)
@@ -178,10 +216,11 @@ def run_symbol(symbol: str):
 
     gpt_out = call_gpt(snapshot)
 
+    # Write logs
     safe_ts = now.replace(":", "-")
     base = f"{LOG_DIR}/{safe_ts}_{symbol}"
     with open(base + "_snapshot.json", "w", encoding="utf-8") as f:
-        json.dump(snapshot, f, ensure_ascii=False, indent=2)
+        json.dump(snapshot, f, ensure_ascii=False, indent=2, default=str)
     with open(base + "_gpt.json", "w", encoding="utf-8") as f:
         f.write(gpt_out)
 
