@@ -28,10 +28,7 @@ jobs:
       - name: Run scan
         env:
           SYMBOLS: NVDA,AMAT,PLTR,QQQ
-          INTRADAY_INTERVAL: 60min
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
-          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           OPENAI_MODEL: gpt-5.2
         run: |
           python main.py
