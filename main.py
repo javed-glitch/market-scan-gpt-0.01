@@ -1,40 +1,33 @@
 import os
 import json
 import time
-import math
 import requests
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
-
 from openai import OpenAI
 
 # -----------------------------
-# CONFIG (via env vars)
+# CONFIG
 # -----------------------------
-PROVIDER = os.getenv("PROVIDER", "finnhub").strip().lower()  # finnhub | alphavantage
-SYMBOLS = [s.strip().upper() for s in os.getenv("SYMBOLS", "AAPL,MSFT").split(",") if s.strip()]
-TIMEFRAME = os.getenv("TIMEFRAME", "15m").strip().lower()   # 1m,5m,15m,30m,60m,1h,1d
-LOOKBACK_BARS = int(os.getenv("LOOKBACK_BARS", "200"))
+SYMBOLS = [s.strip().upper() for s in os.getenv("SYMBOLS", "TSLA").split(",") if s.strip()]
+INTRADAY_INTERVAL = os.getenv("INTRADAY_INTERVAL", "60min").strip()  # must be 60min for 2H/4H resample
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.2").strip()
 
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
-
-FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "").strip()
 ALPHAVANTAGE_API_KEY = os.getenv("ALPHAVANTAGE_API_KEY", "").strip()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+
+LOG_DIR = "logs"
 
 # -----------------------------
-# INDICATORS (local compute)
+# INDICATORS
 # -----------------------------
 def compute_rsi(close: pd.Series, period: int = 14) -> float:
     delta = close.diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
-
-    # Wilder's smoothing (EMA with alpha=1/period)
     avg_gain = gain.ewm(alpha=1/period, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1/period, adjust=False).mean()
-
     rs = avg_gain / avg_loss.replace(0, np.nan)
     rsi = 100 - (100 / (1 + rs))
     return float(rsi.iloc[-1])
@@ -47,107 +40,50 @@ def compute_macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int =
     hist = macd - sig
     return float(macd.iloc[-1]), float(sig.iloc[-1]), float(hist.iloc[-1])
 
-def infer_levels(df: pd.DataFrame):
-    # simple swing-based levels from last ~50 bars
-    tail = df.tail(50)
-    support = float(tail["l"].min())
-    resistance = float(tail["h"].max())
-    # Add a mid level (optional)
+def infer_levels(df: pd.DataFrame, bars: int = 80):
+    t = df.tail(bars)
+    support = float(t["l"].min())
+    resistance = float(t["h"].max())
     mid = float((support + resistance) / 2.0)
     return [round(support, 4), round(mid, 4)], [round(resistance, 4)]
 
 # -----------------------------
-# DATA FETCH
+# ALPHA VANTAGE FETCH
 # -----------------------------
-def timeframe_to_finnhub_resolution(tf: str) -> str:
-    # Finnhub uses: 1,5,15,30,60,D,W,M
-    if tf.endswith("m"):
-        return tf.replace("m", "")
-    if tf.endswith("h"):
-        return str(int(tf.replace("h", "")) * 60)
-    if tf in ("1d", "d"):
-        return "D"
-    raise ValueError(f"Unsupported TIMEFRAME for Finnhub: {tf}")
+def av_get(params: dict) -> dict:
+    url = "https://www.alphavantage.co/query"
+    params = dict(params)
+    params["apikey"] = ALPHAVANTAGE_API_KEY
 
-def timeframe_to_av_interval(tf: str) -> str:
-    # Alpha Vantage intraday intervals: 1min, 5min, 15min, 30min, 60min
-    if tf.endswith("m"):
-        n = int(tf.replace("m", ""))
-        if n in (1, 5, 15, 30, 60):
-            return f"{n}min"
-    if tf.endswith("h"):
-        n = int(tf.replace("h", ""))
-        if n == 1:
-            return "60min"
-    raise ValueError(f"Unsupported TIMEFRAME for Alpha Vantage intraday: {tf}")
-
-def fetch_finnhub_candles(symbol: str, tf: str, lookback_bars: int) -> pd.DataFrame:
-    if not FINNHUB_API_KEY:
-        raise RuntimeError("Missing FINNHUB_API_KEY")
-    resolution = timeframe_to_finnhub_resolution(tf)
-
-    # compute from/to in unix seconds with padding
-    # rough seconds per bar:
-    sec_per_bar = {
-        "1": 60, "5": 300, "15": 900, "30": 1800, "60": 3600,
-        "D": 86400
-    }.get(resolution, 900)
-
-    now = int(time.time())
-    frm = now - (lookback_bars * sec_per_bar) - (10 * sec_per_bar)
-
-    url = "https://finnhub.io/api/v1/stock/candle"
-    params = {
-        "symbol": symbol,
-        "resolution": resolution,
-        "from": frm,
-        "to": now,
-        "token": FINNHUB_API_KEY,
-    }
     r = requests.get(url, params=params, timeout=30)
     r.raise_for_status()
     data = r.json()
 
-    if data.get("s") != "ok":
-        raise RuntimeError(f"Finnhub candle fetch failed for {symbol}: {data}")
+    # Friendly errors (rate limit / premium messages)
+    if "Information" in data:
+        raise RuntimeError(f"Alpha Vantage: {data['Information']}")
+    if "Note" in data:
+        raise RuntimeError(f"Alpha Vantage: {data['Note']}")
+    if "Error Message" in data:
+        raise RuntimeError(f"Alpha Vantage: {data['Error Message']}")
 
-    df = pd.DataFrame({
-        "t": data["t"],
-        "o": data["o"],
-        "h": data["h"],
-        "l": data["l"],
-        "c": data["c"],
-        "v": data.get("v", [0]*len(data["t"]))
-    })
-    # Finnhub timestamps are seconds
-    df["t"] = pd.to_datetime(df["t"], unit="s", utc=True)
-    return df
+    return data
 
-def fetch_alphavantage_intraday(symbol: str, tf: str) -> pd.DataFrame:
-    if not ALPHAVANTAGE_API_KEY:
-        raise RuntimeError("Missing ALPHAVANTAGE_API_KEY")
-    interval = timeframe_to_av_interval(tf)
-
-    url = "https://www.alphavantage.co/query"
-    params = {
+def fetch_intraday(symbol: str, interval: str = "60min") -> pd.DataFrame:
+    data = av_get({
         "function": "TIME_SERIES_INTRADAY",
         "symbol": symbol,
         "interval": interval,
         "outputsize": "compact",
-        "apikey": ALPHAVANTAGE_API_KEY,
-    }
-    r = requests.get(url, params=params, timeout=30)
-    r.raise_for_status()
-    data = r.json()
-
-    # Alpha Vantage returns a key like: "Time Series (15min)"
+    })
+    # Key like: "Time Series (60min)"
     series_key = None
     for k in data.keys():
         if "Time Series" in k:
             series_key = k
             break
     if not series_key:
-        raise RuntimeError(f"Alpha Vantage response missing time series for {symbol}: {data}")
+        raise RuntimeError(f"Alpha Vantage response missing intraday series for {symbol}: {data}")
 
     rows = []
     for ts, v in data[series_key].items():
@@ -162,38 +98,128 @@ def fetch_alphavantage_intraday(symbol: str, tf: str) -> pd.DataFrame:
     df = pd.DataFrame(rows).sort_values("t")
     return df
 
+def fetch_daily(symbol: str) -> pd.DataFrame:
+    data = av_get({
+        "function": "TIME_SERIES_DAILY_ADJUSTED",
+        "symbol": symbol,
+        "outputsize": "compact",
+    })
+    key = "Time Series (Daily)"
+    if key not in data:
+        raise RuntimeError(f"Alpha Vantage response missing daily series for {symbol}: {data}")
+
+    rows = []
+    for ts, v in data[key].items():
+        rows.append({
+            "t": pd.to_datetime(ts, utc=True),
+            "o": float(v["1. open"]),
+            "h": float(v["2. high"]),
+            "l": float(v["3. low"]),
+            "c": float(v["4. close"]),
+            "v": float(v["6. volume"]),
+        })
+    return pd.DataFrame(rows).sort_values("t")
+
+def fetch_weekly(symbol: str) -> pd.DataFrame:
+    data = av_get({
+        "function": "TIME_SERIES_WEEKLY_ADJUSTED",
+        "symbol": symbol,
+    })
+    key = "Weekly Adjusted Time Series"
+    if key not in data:
+        raise RuntimeError(f"Alpha Vantage response missing weekly series for {symbol}: {data}")
+
+    rows = []
+    for ts, v in data[key].items():
+        rows.append({
+            "t": pd.to_datetime(ts, utc=True),
+            "o": float(v["1. open"]),
+            "h": float(v["2. high"]),
+            "l": float(v["3. low"]),
+            "c": float(v["4. close"]),
+            "v": float(v["6. volume"]),
+        })
+    return pd.DataFrame(rows).sort_values("t")
+
 # -----------------------------
-# GPT CALL (Responses API)
+# RESAMPLE (60min -> 2H/4H)
+# -----------------------------
+def resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
+    d = df.set_index("t").sort_index()
+    agg = {
+        "o": "first",
+        "h": "max",
+        "l": "min",
+        "c": "last",
+        "v": "sum",
+    }
+    out = d.resample(rule).agg(agg).dropna()
+    out = out.reset_index()
+    return out
+
+def build_tf_snapshot(df: pd.DataFrame, tf_name: str) -> dict:
+    close = df["c"].astype(float)
+    rsi = compute_rsi(close, 14)
+    macd, signal, hist = compute_macd(close, 12, 26, 9)
+    supports, resistances = infer_levels(df)
+
+    return {
+        "timeframe": tf_name,
+        "price": float(close.iloc[-1]),
+        "rsi14": round(rsi, 4),
+        "macd": {"macd": round(macd, 6), "signal": round(signal, 6), "hist": round(hist, 6)},
+        "levels_hint": {"support": supports, "resistance": resistances},
+        "candles_tail": df.tail(15).to_dict(orient="records"),
+    }
+
+# -----------------------------
+# GPT PROMPT (early signals + S/R + logged)
 # -----------------------------
 SYSTEM_PROMPT = (
     "You are a trading analysis assistant. You do NOT browse the web. "
-    "You ONLY use the JSON provided by the user. "
+    "You ONLY use the JSON provided. "
     "Be concise, deterministic, and practical. "
     "Return ONLY valid JSON matching the requested schema. "
-    "No financial advice disclaimers. No hype. No emojis."
+    "No hype. No emojis."
 )
 
-USER_PROMPT_TEMPLATE = """You will be given a market snapshot with RSI(14) and MACD(12,26,9) plus recent candles.
-My rule: buy-bias when RSI < 28; sell-bias when RSI > 72; otherwise neutral.
-Use MACD to confirm/deny the bias using:
-- histogram direction (rising/falling)
-- MACD vs signal line relationship
+USER_PROMPT_TEMPLATE = """Analyze this multi-timeframe market snapshot for early signals.
+Timeframes: 2H, 4H, 1D, 1W.
 
-Return ONLY JSON in this schema:
+Rules:
+- Buy-bias when RSI(14) < 28
+- Sell-bias when RSI(14) > 72
+- Otherwise neutral
+Use MACD(12,26,9) to confirm/deny bias:
+- MACD vs Signal relationship
+- Histogram direction (rising/falling) based on current vs prior bar if candle data suggests it
+
+Support/Resistance:
+- Use provided candles_tail and levels_hint.
+- Return 2-3 support levels and 2-3 resistance levels as zone midpoints (numbers).
+
+Output ONLY JSON in this schema:
 {
   "run_id": string,
   "timestamp_utc": string,
   "symbol": string,
-  "timeframe": string,
-  "price": number,
-  "rsi14": number,
-  "macd": { "macd": number, "signal": number, "hist": number },
-  "setup": "buy" | "sell" | "neutral",
-  "confidence_0_100": number,
-  "why": [string, string, string],
-  "levels": { "support": [number], "resistance": [number] },
-  "invalidation": string,
-  "next_action": string
+  "signals": [
+    {
+      "timeframe": "2H"|"4H"|"1D"|"1W",
+      "price": number,
+      "rsi14": number,
+      "macd": {"macd": number, "signal": number, "hist": number},
+      "setup": "buy"|"sell"|"neutral",
+      "confidence_0_100": number,
+      "support": [number, number, number],
+      "resistance": [number, number, number],
+      "why": [string, string, string],
+      "invalidation": string,
+      "next_action": string
+    }
+  ],
+  "overall_bias": "buy"|"sell"|"neutral",
+  "watchlist_notes": [string, string]
 }
 
 Market snapshot JSON:
@@ -201,81 +227,88 @@ Market snapshot JSON:
 """
 
 def call_gpt(snapshot: dict) -> str:
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-
-    user_prompt = USER_PROMPT_TEMPLATE.replace("{SNAPSHOT_JSON}", json.dumps(snapshot, ensure_ascii=False))
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    prompt = USER_PROMPT_TEMPLATE.replace("{SNAPSHOT_JSON}", json.dumps(snapshot, ensure_ascii=False))
     resp = client.responses.create(
         model=OPENAI_MODEL,
         input=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
+            {"role": "user", "content": prompt},
         ],
     )
     return resp.output_text.strip()
 
 # -----------------------------
-# NOTIFY (optional)
-# -----------------------------
-def post_discord(message: str):
-    if not DISCORD_WEBHOOK_URL:
-        return
-    # Discord expects {"content": "..."}
-    r = requests.post(DISCORD_WEBHOOK_URL, json={"content": message[:1900]}, timeout=30)
-    r.raise_for_status()
-
-# -----------------------------
 # MAIN
 # -----------------------------
-def run_for_symbol(symbol: str):
-    if PROVIDER == "finnhub":
-        df = fetch_finnhub_candles(symbol, TIMEFRAME, LOOKBACK_BARS)
-    elif PROVIDER == "alphavantage":
-        df = fetch_alphavantage_intraday(symbol, TIMEFRAME).tail(LOOKBACK_BARS)
-    else:
-        raise ValueError("PROVIDER must be finnhub or alphavantage")
+def ensure_dirs():
+    os.makedirs(LOG_DIR, exist_ok=True)
 
-    if len(df) < 50:
-        raise RuntimeError(f"Not enough candles for {symbol}: got {len(df)}")
+def utc_now_iso():
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
-    close = df["c"].astype(float)
-    rsi14 = compute_rsi(close, 14)
-    macd, signal, hist = compute_macd(close, 12, 26, 9)
+def run_symbol(symbol: str):
+    # Alpha Vantage free tier has per-minute throttles; be polite between symbols.
+    # (helps avoid "Note" responses)
+    time.sleep(12)
 
-    supports, resistances = infer_levels(df)
+    intraday = fetch_intraday(symbol, INTRADAY_INTERVAL)
+    daily = fetch_daily(symbol)
+    weekly = fetch_weekly(symbol)
 
-    now_utc = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    price = float(close.iloc[-1])
+    # Need enough bars for stable indicators
+    if len(intraday) < 80:
+        raise RuntimeError(f"Not enough intraday bars for {symbol}: {len(intraday)}")
+    if len(daily) < 80:
+        raise RuntimeError(f"Not enough daily bars for {symbol}: {len(daily)}")
+    if len(weekly) < 40:
+        raise RuntimeError(f"Not enough weekly bars for {symbol}: {len(weekly)}")
 
+    tf_2h = resample_ohlcv(intraday, "2H")
+    tf_4h = resample_ohlcv(intraday, "4H")
+
+    # Build snapshot bundle for ONE GPT call per symbol
+    now = utc_now_iso()
     snapshot = {
-        "run_id": f"{now_utc}_{symbol}_{TIMEFRAME}",
-        "timestamp_utc": now_utc,
+        "run_id": f"{now}_{symbol}",
+        "timestamp_utc": now,
         "symbol": symbol,
-        "timeframe": TIMEFRAME,
-        "price": price,
-        "rsi14": round(rsi14, 4),
-        "macd": {"macd": round(macd, 6), "signal": round(signal, 6), "hist": round(hist, 6)},
-        "levels_hint": {"support": supports, "resistance": resistances},
-        "candles_tail": df.tail(15).to_dict(orient="records"),
+        "data": {
+            "2H": build_tf_snapshot(tf_2h.tail(220), "2H"),
+            "4H": build_tf_snapshot(tf_4h.tail(220), "4H"),
+            "1D": build_tf_snapshot(daily.tail(220), "1D"),
+            "1W": build_tf_snapshot(weekly.tail(220), "1W"),
+        }
     }
 
-    gpt_json = call_gpt(snapshot)
+    gpt_out = call_gpt(snapshot)
 
-    # Print for GitHub Actions logs
-    print("\n========== GPT OUTPUT ==========")
-    print(gpt_json)
-    print("================================\n")
+    # Write logs
+    safe_ts = now.replace(":", "-")
+    base = f"{LOG_DIR}/{safe_ts}_{symbol}"
+    with open(base + "_snapshot.json", "w", encoding="utf-8") as f:
+        json.dump(snapshot, f, ensure_ascii=False, indent=2)
+    with open(base + "_gpt.json", "w", encoding="utf-8") as f:
+        f.write(gpt_out)
 
-    # Optional webhook
-    post_discord(f"**{symbol} {TIMEFRAME}**\n```json\n{gpt_json}\n```")
+    print(f"\n===== {symbol} GPT OUTPUT =====")
+    print(gpt_out)
+    print("==============================\n")
 
 def main():
-    if "OPENAI_API_KEY" not in os.environ or not os.environ["OPENAI_API_KEY"].strip():
+    if not OPENAI_API_KEY:
         raise RuntimeError("Missing OPENAI_API_KEY")
+    if not ALPHAVANTAGE_API_KEY:
+        raise RuntimeError("Missing ALPHAVANTAGE_API_KEY")
+    if INTRADAY_INTERVAL != "60min":
+        raise RuntimeError("Set INTRADAY_INTERVAL to 60min for correct 2H/4H resampling.")
+
+    ensure_dirs()
 
     errors = []
     for sym in SYMBOLS:
         try:
-            run_for_symbol(sym)
+            run_symbol(sym)
         except Exception as e:
             errors.append(f"{sym}: {repr(e)}")
 
