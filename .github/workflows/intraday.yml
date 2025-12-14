@@ -1,0 +1,35 @@
+name: Intraday Scan (runs intraday branch only)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  intraday:
+    if: github.ref_name == 'intraday'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout intraday branch
+        uses: actions/checkout@v4
+        with:
+          ref: intraday
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run intraday
+        env:
+          SYMBOLS: NVDA,AMAT,PLTR,QQQ
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: gpt-4o-mini
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python intraday.py
