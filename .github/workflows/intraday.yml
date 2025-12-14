@@ -2,6 +2,8 @@ name: Intraday Scan (runs intraday branch only)
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 */2 * * 1-5"   # every 2 hours, weekdays (UTC)
 
 jobs:
   intraday:
@@ -27,9 +29,19 @@ jobs:
       - name: Run intraday
         env:
           SYMBOLS: NVDA,AMAT,PLTR,QQQ
+
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-4o-mini
+
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python intraday.py
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: intraday-scan-logs
+          path: logs/
