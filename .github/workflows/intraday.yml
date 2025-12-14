@@ -5,8 +5,8 @@ on:
 
 jobs:
   intraday:
-    if: github.ref_name == 'intraday'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout intraday branch
