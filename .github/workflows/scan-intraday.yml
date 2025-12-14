@@ -1,9 +1,8 @@
-name: Intraday Scan (2H/4H) -> GPT -> Telegram
+name: Intraday Scan -> Telegram (Test)
 
 on:
   workflow_dispatch:
   schedule:
-    # Every 2 hours on weekdays (adjust later)
     - cron: "0 */2 * * 1-5"
 
 jobs:
@@ -12,7 +11,7 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -25,20 +24,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run intraday scan
+      - name: Run intraday
         env:
           SYMBOLS: NVDA,AMAT,PLTR,QQQ
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: gpt-4o-mini
-
-          # Telegram
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python intraday.py
-
-      - name: Upload logs
-        uses: actions/upload-artifact@v4
-        with:
-          name: intraday-scan-logs
-          path: logs/
