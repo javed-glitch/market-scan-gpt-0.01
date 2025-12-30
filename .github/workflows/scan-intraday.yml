@@ -26,7 +26,7 @@ jobs:
 
       - name: Run intraday
         env:
-          SYMBOLS: NVDA,AMAT,PLTR,QQQ
+          SYMBOLS: NVDA,AMAT,PLTR,TSLA,QQQ
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
