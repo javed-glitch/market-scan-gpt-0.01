@@ -28,7 +28,7 @@ jobs:
 
       - name: Run intraday
         env:
-          SYMBOLS: NVDA,AMAT,PLTR,TSLA,QQQ3,QQQ
+          SYMBOLS: NVDA,AMAT,PLTR,TSLA,QQQ
 
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
 
