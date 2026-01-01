@@ -267,8 +267,11 @@ def main():
 
             for tf in timeframes:
                 df = tf_map[tf]
-                if len(df) < 80:
-                    raise RuntimeError(f"{symbol} {tf}: not enough bars ({len(df)})")
+
+MIN_BARS = 60  # sufficient for RSI/MACD stability
+
+if len(df) < MIN_BARS:
+    raise RuntimeError(f"{symbol} {tf}: not enough bars ({len(df)})")
 
                 sup, res = support_resistance(df)
                 close = float(df["c"].iloc[-1])
