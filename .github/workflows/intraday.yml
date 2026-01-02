@@ -1,9 +1,10 @@
-name: Intraday Scan (runs intraday branch only)
+name: Intraday Scan (4H, UK hours) -> Telegram
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */2 * * 1-5"   # every 2 hours, weekdays (UTC)
+    # UK time currently = UTC. Runs at 08:00, 12:00, 16:00, 20:00 (Mon–Fri)
+    - cron: "0 8,12,16,20 * * 1-5"
 
 jobs:
   intraday:
@@ -29,14 +30,13 @@ jobs:
       - name: Run intraday
         env:
           SYMBOLS: NVDA,AMAT,PLTR,TSLA,QQQ
-
+          ETF_SYMBOLS: QQQ
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
-
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-4o-mini
-
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ACTION_CONFIDENCE_MIN: "70"
         run: |
           python intraday.py
 
