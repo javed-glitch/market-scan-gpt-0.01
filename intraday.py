@@ -29,15 +29,34 @@ ACTION_CONFIDENCE_MIN = int(os.getenv("ACTION_CONFIDENCE_MIN", "70"))
 
 BASE_URL = "https://api.twelvedata.com/time_series"
 
-# 1H lookback for building 4H (~90x 4H bars)
-LOOKBACK_1H_BARS = int(os.getenv("LOOKBACK_1H_BARS", "360"))
+# 1H lookback for building 4H
+LOOKBACK_1H_BARS = int(os.getenv("LOOKBACK_1H_BARS", "360"))  # 360h ~ 90x 4H bars
 # Daily lookback for 52W high
-LOOKBACK_1D_BARS = int(os.getenv("LOOKBACK_1D_BARS", "320"))
+LOOKBACK_1D_BARS = int(os.getenv("LOOKBACK_1D_BARS", "320"))  # >= 252 needed
 
 CHART_BARS = int(os.getenv("CHART_BARS", "120"))
-SLEEP = float(os.getenv("SLEEP_BETWEEN_CALLS", "0.8"))
+
+# FREE TIER RATE LIMITING
+# Twelve Data: your error said 8 credits/min. We'll hard-cap to 1 request every 8-10 seconds.
+TD_MIN_SECONDS_BETWEEN_CALLS = float(os.getenv("TD_MIN_SECONDS_BETWEEN_CALLS", "9.0"))
+
+# Small pauses to be polite; GPT + Telegram are separate from Twelve Data credits
+SLEEP_BETWEEN_OTHER_CALLS = float(os.getenv("SLEEP_BETWEEN_OTHER_CALLS", "0.3"))
 
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# =========================
+# RATE LIMITER (Twelve Data only)
+# =========================
+_last_td_call_ts = 0.0
+
+def td_throttle():
+    global _last_td_call_ts
+    now = time.time()
+    wait = TD_MIN_SECONDS_BETWEEN_CALLS - (now - _last_td_call_ts)
+    if wait > 0:
+        time.sleep(wait)
+    _last_td_call_ts = time.time()
 
 
 # =========================
@@ -46,13 +65,18 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 def utc_now():
     return datetime.now(timezone.utc).replace(microsecond=0)
 
-def utc_now_iso():
-    return utc_now().isoformat()
+def utc_now_str():
+    return utc_now().strftime("%Y-%m-%d %H:%M UTC")
 
 def ensure_dirs():
     os.makedirs("charts", exist_ok=True)
     os.makedirs("logs", exist_ok=True)
 
+def safe_float(x, default=np.nan):
+    try:
+        return float(x)
+    except Exception:
+        return default
 
 # =========================
 # TELEGRAM
@@ -83,9 +107,20 @@ def tg_send_photo(photo_path: str, caption: str):
 
 
 # =========================
-# TWELVE DATA FETCH
+# TWELVE DATA FETCH (CACHED)
 # =========================
+_cache = {}  # (symbol, interval) -> DataFrame
+
 def fetch_series(symbol: str, interval: str, outputsize: int) -> pd.DataFrame:
+    key = (symbol, interval)
+    if key in _cache:
+        return _cache[key]
+
+    if not TD_API_KEY:
+        raise RuntimeError("Missing TWELVEDATA_API_KEY")
+
+    td_throttle()
+
     params = {
         "symbol": symbol,
         "interval": interval,
@@ -94,12 +129,26 @@ def fetch_series(symbol: str, interval: str, outputsize: int) -> pd.DataFrame:
         "format": "JSON",
     }
     r = requests.get(BASE_URL, params=params, timeout=30)
-    if r.status_code != 200:
+
+    # If we get a credit/rate-limit message, wait and retry once
+    if r.status_code == 200:
+        data = r.json()
+    else:
         raise RuntimeError(f"TwelveData HTTP {r.status_code}: {r.text[:250]}")
 
-    data = r.json()
     if isinstance(data, dict) and data.get("status") == "error":
-        raise RuntimeError(f"TwelveData error: {data.get('message')}")
+        msg = (data.get("message") or "").lower()
+        if "run out of api credits" in msg or "current minute" in msg:
+            # wait for next minute window
+            time.sleep(60)
+            td_throttle()
+            r2 = requests.get(BASE_URL, params=params, timeout=30)
+            if r2.status_code != 200:
+                raise RuntimeError(f"TwelveData HTTP {r2.status_code}: {r2.text[:250]}")
+            data = r2.json()
+
+        if isinstance(data, dict) and data.get("status") == "error":
+            raise RuntimeError(f"TwelveData error: {data.get('message')}")
 
     values = data.get("values")
     if not values:
@@ -118,6 +167,8 @@ def fetch_series(symbol: str, interval: str, outputsize: int) -> pd.DataFrame:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     df = df.dropna(subset=["t", "o", "h", "l", "c"]).sort_values("t").set_index("t")
+
+    _cache[key] = df
     return df
 
 def fetch_1h(symbol: str) -> pd.DataFrame:
@@ -177,7 +228,6 @@ def compute_52w(daily_df: pd.DataFrame, last_close: float):
     d = daily_df.tail(252)
     high_52w = float(d["h"].max())
     pct_from = ((last_close - high_52w) / high_52w) * 100.0
-
     lvl_20 = high_52w * 0.80
     lvl_30 = high_52w * 0.70
     lvl_40 = high_52w * 0.60
@@ -187,8 +237,8 @@ def compute_52w(daily_df: pd.DataFrame, last_close: float):
 # =========================
 # CHARTS
 # =========================
-def make_chart(symbol: str, tf: str, df: pd.DataFrame, sup: float, res: float, out_path: str):
-    d = df.tail(CHART_BARS).copy()
+def make_chart(symbol: str, tf: str, df_4h: pd.DataFrame, sup: float, res: float, out_path: str):
+    d = df_4h.tail(CHART_BARS).copy()
     close = d["c"]
 
     r = rsi_wilder(close, 14).bfill()
@@ -231,8 +281,8 @@ def make_chart(symbol: str, tf: str, df: pd.DataFrame, sup: float, res: float, o
 # GPT ANALYSIS
 # =========================
 def gpt_analyze(symbol: str, tf: str, close: float, rsi_val: float, macd_text: str,
-                sup: float, res: float,
-                high_52w: float, pct_from_52w: float, lvl_20: float, lvl_30: float, lvl_40: float) -> dict:
+               sup: float, res: float,
+               high_52w: float, pct_from_52w: float, lvl_20: float, lvl_30: float, lvl_40: float) -> dict:
     prompt = f"""
 You are a trading assistant. Be concise and structured.
 
@@ -268,13 +318,10 @@ Return JSON with exactly these keys:
         temperature=0.2
     )
     text = resp.choices[0].message.content.strip()
-
-    # Extract JSON safely if wrapped
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
         text = text[start:end+1]
-
     return json.loads(text)
 
 
@@ -290,17 +337,16 @@ def main():
         raise RuntimeError("Missing TWELVEDATA_API_KEY")
 
     ensure_dirs()
-    ts = utc_now()
-    ts_str = ts.strftime("%Y-%m-%d %H:%M UTC")
-
+    ts_str = utc_now_str()
     tf = "4H"
+
     results = []
     actionable = []
     failures = []
 
+    # One Twelve Data 1H + 1D fetch per symbol, max.
     for symbol in SYMBOLS:
         try:
-            time.sleep(SLEEP)
             df_1h = fetch_1h(symbol)
             df_4h = resample_ohlc(df_1h, "4H")
 
@@ -315,11 +361,10 @@ def main():
 
             sup, res = support_resistance(df_4h)
 
-            time.sleep(SLEEP)
             df_1d = fetch_1d(symbol)
             high_52w, pct_from, lvl_20, lvl_30, lvl_40 = compute_52w(df_1d, close)
 
-            time.sleep(SLEEP)
+            time.sleep(SLEEP_BETWEEN_OTHER_CALLS)
             g = gpt_analyze(symbol, tf, close, rsi_val, macd_text, sup, res,
                             high_52w, pct_from, lvl_20, lvl_30, lvl_40)
 
@@ -328,6 +373,7 @@ def main():
 
             results.append({
                 "symbol": symbol,
+                "df_4h": df_4h,  # cache for charting (no re-fetch)
                 "close": close,
                 "rsi": rsi_val,
                 "macd_text": macd_text,
@@ -341,17 +387,16 @@ def main():
                 "g": g
             })
 
-            # Chart + detailed message only if Buy/Sell entry is advised
-            if bias in ("Buy", "Sell"):
+            if bias in ("Buy", "Sell") and conf >= ACTION_CONFIDENCE_MIN:
                 actionable.append(symbol)
 
         except Exception as e:
             failures.append(f"{symbol}: {repr(e)}")
 
-    # 1) ONE SUMMARY MESSAGE
+    # SUMMARY
     lines = [
-        f"📊 INTRADAY SCAN (4H)",
-        f"{ts_str}",
+        "📊 INTRADAY SCAN (4H)",
+        ts_str,
         "=" * 50,
         ""
     ]
@@ -359,19 +404,13 @@ def main():
     if results:
         for r in results:
             g = r["g"]
-            bias = g.get("bias", "Neutral")
+            bias = (g.get("bias", "Neutral") or "Neutral").upper()
             conf = int(g.get("confidence", 0))
             tag = g.get("setup_tag", "")
-            lines.append(
-                f"🔷 {r['symbol']} | {bias.upper()} | {conf}%"
-            )
-            lines.append(
-                f"Setup: {tag}"
-            )
-            lines.append(
-                f"From 52W High: {r['pct_from']:.1f}%"
-            )
-            lines.append("")  # spacer
+            lines.append(f"🔷 {r['symbol']} | {bias} | {conf}%")
+            lines.append(f"Setup: {tag}")
+            lines.append(f"From 52W High: {r['pct_from']:.1f}%")
+            lines.append("")
     else:
         lines.append("No results produced.")
         lines.append("")
@@ -382,7 +421,7 @@ def main():
 
     tg_send_message("\n".join(lines))
 
-    # 2) CHART + DETAILED MESSAGE only if Buy/Sell
+    # CHART + DETAIL ONLY FOR ACTIONABLE (Buy/Sell + conf threshold)
     for r in results:
         g = r["g"]
         symbol = r["symbol"]
@@ -391,48 +430,37 @@ def main():
 
         if bias not in ("Buy", "Sell"):
             continue
-
-        # Optional: enforce confidence threshold for charting (keeps noise down)
-        # If you want charts for ALL Buy/Sell regardless of confidence, set ACTION_CONFIDENCE_MIN to 0 in workflow.
         if conf < ACTION_CONFIDENCE_MIN:
             continue
 
-        # Build chart from already-fetched 4H dataframe would be ideal, but we keep it simple/reliable:
-        df_4h = resample_ohlc(fetch_1h(symbol), "4H")
         chart_path = f"charts/{symbol}_4H.png"
-        make_chart(symbol, "4H", df_4h, r["sup"], r["res"], chart_path)
+        make_chart(symbol, "4H", r["df_4h"], r["sup"], r["res"], chart_path)
 
         caption = (
-            f"🔷 {symbol} (4H)\n"
-            f"\n"
+            f"🔷 {symbol} (4H)\n\n"
             f"Close: {r['close']:.2f}\n"
             f"RSI: {r['rsi']:.1f}\n"
             f"MACD: {r['macd_text']}\n"
             f"Support: {r['sup']:.2f}\n"
-            f"Resistance: {r['res']:.2f}\n"
-            f"\n"
+            f"Resistance: {r['res']:.2f}\n\n"
             f"52W High: {r['high_52w']:.2f}\n"
             f"From 52W High: {r['pct_from']:.1f}%\n"
-            f"-20%: {r['lvl_20']:.2f} | -30%: {r['lvl_30']:.2f} | -40%: {r['lvl_40']:.2f}\n"
-            f"\n"
+            f"-20%: {r['lvl_20']:.2f} | -30%: {r['lvl_30']:.2f} | -40%: {r['lvl_40']:.2f}\n\n"
             f"Bias: {g.get('bias','Neutral')}\n"
             f"Entry Zone: {g.get('entry_zone','')}\n"
             f"Invalidation: {g.get('invalidation','')}\n"
-            f"Confidence: {g.get('confidence','')}%\n"
-            f"\n"
+            f"Confidence: {g.get('confidence','')}%\n\n"
             f"Setup Tag: {g.get('setup_tag','')}\n"
             f"Definition: {g.get('definition','')}\n"
             f"Why: {g.get('why','')}"
         )
 
         tg_send_photo(chart_path, caption)
-        time.sleep(SLEEP)
+        time.sleep(SLEEP_BETWEEN_OTHER_CALLS)
 
-    # 3) Failures (if any)
     if failures:
         tg_send_message("⚠️ Intraday issues:\n" + "\n".join(failures))
 
-    # Save logs
     with open("logs/intraday_summary.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
         if failures:
