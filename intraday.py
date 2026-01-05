@@ -25,6 +25,7 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
+# Charts are sent only if Bias is Buy/Sell AND confidence >= this threshold
 ACTION_CONFIDENCE_MIN = int(os.getenv("ACTION_CONFIDENCE_MIN", "70"))
 
 BASE_URL = "https://api.twelvedata.com/time_series"
@@ -37,13 +38,13 @@ LOOKBACK_1D_BARS = int(os.getenv("LOOKBACK_1D_BARS", "320"))  # >= 252 needed
 CHART_BARS = int(os.getenv("CHART_BARS", "120"))
 
 # FREE TIER RATE LIMITING
-# Twelve Data: your error said 8 credits/min. We'll hard-cap to 1 request every 8-10 seconds.
 TD_MIN_SECONDS_BETWEEN_CALLS = float(os.getenv("TD_MIN_SECONDS_BETWEEN_CALLS", "9.0"))
 
-# Small pauses to be polite; GPT + Telegram are separate from Twelve Data credits
+# Small pauses for GPT/Telegram (not Twelve Data credits)
 SLEEP_BETWEEN_OTHER_CALLS = float(os.getenv("SLEEP_BETWEEN_OTHER_CALLS", "0.3"))
 
 client = OpenAI(api_key=OPENAI_API_KEY)
+
 
 # =========================
 # RATE LIMITER (Twelve Data only)
@@ -72,11 +73,43 @@ def ensure_dirs():
     os.makedirs("charts", exist_ok=True)
     os.makedirs("logs", exist_ok=True)
 
-def safe_float(x, default=np.nan):
-    try:
-        return float(x)
-    except Exception:
-        return default
+
+# =========================
+# INVESTOR ACTION (confidence nuance)
+# =========================
+def investor_action(trading_bias: str, confidence: int) -> str:
+    """
+    Long-only swing trader framing:
+    - BUY = potential add/accumulate zone
+    - SELL = potential trim/take-profits zone (not short)
+    - NEUTRAL = hold/wait
+
+    Confidence nuance:
+    BUY:
+      >=70  -> ADD / ACCUMULATE
+      <70   -> WATCH / EARLY SETUP
+    SELL:
+      >=80  -> TRIM / TAKE PROFITS
+      70-79 -> HOLD / WAIT (extended)
+      <70   -> IGNORE / NO ACTION
+    NEUTRAL:
+      -> HOLD / WAIT
+    """
+    b = (trading_bias or "Neutral").strip().lower()
+    c = int(confidence or 0)
+
+    if b == "buy":
+        return "ADD / ACCUMULATE" if c >= 70 else "WATCH / EARLY SETUP"
+
+    if b == "sell":
+        if c >= 80:
+            return "TRIM / TAKE PROFITS"
+        if c >= 70:
+            return "HOLD / WAIT (extended)"
+        return "IGNORE / NO ACTION"
+
+    return "HOLD / WAIT"
+
 
 # =========================
 # TELEGRAM
@@ -129,17 +162,15 @@ def fetch_series(symbol: str, interval: str, outputsize: int) -> pd.DataFrame:
         "format": "JSON",
     }
     r = requests.get(BASE_URL, params=params, timeout=30)
-
-    # If we get a credit/rate-limit message, wait and retry once
-    if r.status_code == 200:
-        data = r.json()
-    else:
+    if r.status_code != 200:
         raise RuntimeError(f"TwelveData HTTP {r.status_code}: {r.text[:250]}")
 
+    data = r.json()
+
+    # If we get a credit/rate-limit message, wait and retry once
     if isinstance(data, dict) and data.get("status") == "error":
         msg = (data.get("message") or "").lower()
         if "run out of api credits" in msg or "current minute" in msg:
-            # wait for next minute window
             time.sleep(60)
             td_throttle()
             r2 = requests.get(BASE_URL, params=params, timeout=30)
@@ -344,7 +375,6 @@ def main():
     actionable = []
     failures = []
 
-    # One Twelve Data 1H + 1D fetch per symbol, max.
     for symbol in SYMBOLS:
         try:
             df_1h = fetch_1h(symbol)
@@ -368,12 +398,13 @@ def main():
             g = gpt_analyze(symbol, tf, close, rsi_val, macd_text, sup, res,
                             high_52w, pct_from, lvl_20, lvl_30, lvl_40)
 
-            bias = g.get("bias", "Neutral")
+            trading_bias = g.get("bias", "Neutral")
             conf = int(g.get("confidence", 0))
+            action = investor_action(trading_bias, conf)
 
             results.append({
                 "symbol": symbol,
-                "df_4h": df_4h,  # cache for charting (no re-fetch)
+                "df_4h": df_4h,  # cached for charting (no refetch)
                 "close": close,
                 "rsi": rsi_val,
                 "macd_text": macd_text,
@@ -384,16 +415,20 @@ def main():
                 "lvl_20": lvl_20,
                 "lvl_30": lvl_30,
                 "lvl_40": lvl_40,
-                "g": g
+                "g": g,
+                "trading_bias": trading_bias,
+                "confidence": conf,
+                "investor_action": action
             })
 
-            if bias in ("Buy", "Sell") and conf >= ACTION_CONFIDENCE_MIN:
+            # "Entry advised" = Buy/Sell bias AND confidence >= ACTION_CONFIDENCE_MIN
+            if (trading_bias in ("Buy", "Sell")) and (conf >= ACTION_CONFIDENCE_MIN):
                 actionable.append(symbol)
 
         except Exception as e:
             failures.append(f"{symbol}: {repr(e)}")
 
-    # SUMMARY
+    # SUMMARY MESSAGE (uses Investor Action)
     lines = [
         "📊 INTRADAY SCAN (4H)",
         ts_str,
@@ -404,10 +439,8 @@ def main():
     if results:
         for r in results:
             g = r["g"]
-            bias = (g.get("bias", "Neutral") or "Neutral").upper()
-            conf = int(g.get("confidence", 0))
             tag = g.get("setup_tag", "")
-            lines.append(f"🔷 {r['symbol']} | {bias} | {conf}%")
+            lines.append(f"🔷 {r['symbol']} | {r['investor_action']} | {r['confidence']}%")
             lines.append(f"Setup: {tag}")
             lines.append(f"From 52W High: {r['pct_from']:.1f}%")
             lines.append("")
@@ -421,18 +454,18 @@ def main():
 
     tg_send_message("\n".join(lines))
 
-    # CHART + DETAIL ONLY FOR ACTIONABLE (Buy/Sell + conf threshold)
+    # CHART + DETAIL only for actionable entries
     for r in results:
         g = r["g"]
-        symbol = r["symbol"]
-        bias = g.get("bias", "Neutral")
-        conf = int(g.get("confidence", 0))
+        trading_bias = r["trading_bias"]
+        conf = r["confidence"]
 
-        if bias not in ("Buy", "Sell"):
+        if trading_bias not in ("Buy", "Sell"):
             continue
         if conf < ACTION_CONFIDENCE_MIN:
             continue
 
+        symbol = r["symbol"]
         chart_path = f"charts/{symbol}_4H.png"
         make_chart(symbol, "4H", r["df_4h"], r["sup"], r["res"], chart_path)
 
@@ -446,10 +479,11 @@ def main():
             f"52W High: {r['high_52w']:.2f}\n"
             f"From 52W High: {r['pct_from']:.1f}%\n"
             f"-20%: {r['lvl_20']:.2f} | -30%: {r['lvl_30']:.2f} | -40%: {r['lvl_40']:.2f}\n\n"
-            f"Bias: {g.get('bias','Neutral')}\n"
+            f"Trading Bias: {trading_bias}\n"
+            f"Investor Action: {r['investor_action']}\n"
+            f"Confidence: {conf}%\n\n"
             f"Entry Zone: {g.get('entry_zone','')}\n"
-            f"Invalidation: {g.get('invalidation','')}\n"
-            f"Confidence: {g.get('confidence','')}%\n\n"
+            f"Invalidation: {g.get('invalidation','')}\n\n"
             f"Setup Tag: {g.get('setup_tag','')}\n"
             f"Definition: {g.get('definition','')}\n"
             f"Why: {g.get('why','')}"
