@@ -391,6 +391,10 @@ def main():
 
             sup, res = support_resistance(df_4h)
 
+            # % distance to S/R (for summary)
+            dist_to_sup_pct = ((sup - close) / close) * 100.0
+            dist_to_res_pct = ((res - close) / close) * 100.0
+
             df_1d = fetch_1d(symbol)
             high_52w, pct_from, lvl_20, lvl_30, lvl_40 = compute_52w(df_1d, close)
 
@@ -410,6 +414,8 @@ def main():
                 "macd_text": macd_text,
                 "sup": sup,
                 "res": res,
+                "dist_to_sup_pct": dist_to_sup_pct,
+                "dist_to_res_pct": dist_to_res_pct,
                 "high_52w": high_52w,
                 "pct_from": pct_from,
                 "lvl_20": lvl_20,
@@ -428,7 +434,7 @@ def main():
         except Exception as e:
             failures.append(f"{symbol}: {repr(e)}")
 
-    # SUMMARY MESSAGE (uses Investor Action)
+    # SUMMARY MESSAGE (uses Investor Action) + S/R + Δ to S/R + 52W info
     lines = [
         "📊 INTRADAY SCAN (4H)",
         ts_str,
@@ -440,9 +446,16 @@ def main():
         for r in results:
             g = r["g"]
             tag = g.get("setup_tag", "")
+
             lines.append(f"🔷 {r['symbol']} | {r['investor_action']} | {r['confidence']}%")
-            lines.append(f"Setup: {tag}")
+            # Requested: S/R on its own line
+            lines.append(f"S: {r['sup']:.2f}  |  R: {r['res']:.2f}")
+            # Optional: Δ to S/R (%) on its own line (included)
+            lines.append(f"Δ to S: {r['dist_to_sup_pct']:.1f}%  |  Δ to R: {r['dist_to_res_pct']:.1f}%")
+            # Existing 52W line retained
             lines.append(f"From 52W High: {r['pct_from']:.1f}%")
+            # Existing setup line retained (no change to tag/explanations)
+            lines.append(f"Setup: {tag}")
             lines.append("")
     else:
         lines.append("No results produced.")
@@ -454,7 +467,7 @@ def main():
 
     tg_send_message("\n".join(lines))
 
-    # CHART + DETAIL only for actionable entries
+    # CHART + DETAIL only for actionable entries (unchanged logic)
     for r in results:
         g = r["g"]
         trading_bias = r["trading_bias"]
@@ -475,7 +488,8 @@ def main():
             f"RSI: {r['rsi']:.1f}\n"
             f"MACD: {r['macd_text']}\n"
             f"Support: {r['sup']:.2f}\n"
-            f"Resistance: {r['res']:.2f}\n\n"
+            f"Resistance: {r['res']:.2f}\n"
+            f"Δ to S: {r['dist_to_sup_pct']:.1f}% | Δ to R: {r['dist_to_res_pct']:.1f}%\n\n"
             f"52W High: {r['high_52w']:.2f}\n"
             f"From 52W High: {r['pct_from']:.1f}%\n"
             f"-20%: {r['lvl_20']:.2f} | -30%: {r['lvl_30']:.2f} | -40%: {r['lvl_40']:.2f}\n\n"
