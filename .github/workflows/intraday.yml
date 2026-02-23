@@ -28,7 +28,7 @@ jobs:
 
       - name: Run intraday (Order Setter)
         env:
-          SYMBOLS: NVDA,AMAT,PLTR,TSLA,PHPP,ORCL,MSFT,CRWV,NBIS
+          SYMBOLS: NVDA,AMAT,PLTR,TSLA,ORCL,MSFT,CRWV,NBIS
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
