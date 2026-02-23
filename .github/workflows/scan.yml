@@ -27,7 +27,7 @@ jobs:
 
       - name: Run scan
         env:
-          SYMBOLS: NVDA,AMAT,PLTR,TSLA,PHPP,ORCL,MSFT,CRWV,NBIS
+          SYMBOLS: NVDA,AMAT,PLTR,TSLA,ORCL,MSFT,CRWV,NBIS
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-4o-mini
         run: |
