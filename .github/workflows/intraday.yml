@@ -29,7 +29,12 @@ jobs:
       - name: Run intraday (Order Setter)
         env:
           SYMBOLS: NVDA,AMAT,PLTR,TSLA,ORCL,MSFT,CRWV,NBIS
+
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: gpt-4o-mini
+
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
@@ -46,6 +51,7 @@ jobs:
           python intraday.py
 
       - name: Upload logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: intraday-scan-logs
