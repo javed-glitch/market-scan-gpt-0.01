@@ -2,7 +2,7 @@ name: Market Scan (2H/4H/1D/1W) -> GPT (Logged)
 
 on:
   workflow_dispatch:
-   # schedule:
+  schedule:
     # Weekdays at 18:10 UTC
     # - cron: "10 18 * * 1-5"
 
