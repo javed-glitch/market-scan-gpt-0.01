@@ -1,51 +1,72 @@
-import os, time, io, requests
-import pandas as pd
-import numpy as np
+import io
+import math
+import os
+import time
 from datetime import datetime, timezone
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch
+from matplotlib.patches import FancyBboxPatch, Circle
+import numpy as np
+import pandas as pd
+import requests
 
 # =========================
 # CONFIG
 # =========================
-SYMBOLS            = [s.strip().upper() for s in os.getenv("SYMBOLS", "TSLA,NVDA,PLTR").split(",") if s.strip()]
+SYMBOLS = [s.strip().upper() for s in os.getenv("SYMBOLS", "TSLA,NVDA,PLTR").split(",") if s.strip()]
 CAPITAL_PER_TICKER = float(os.getenv("CAPITAL_PER_TICKER", "3000"))
-TD_API_KEY         = os.getenv("TWELVEDATA_API_KEY", "").strip()
-TELEGRAM_TOKEN     = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-BASE_URL           = "https://api.twelvedata.com/time_series"
-TD_MIN_SECONDS     = float(os.getenv("TD_MIN_SECONDS_BETWEEN_CALLS", "11.0"))
-_last_td_call      = 0.0
-
-# Assumed already-deployed amounts (would come from a state file in production)
-def get_deployed(sym):
-    return float(os.getenv(f"DEPLOYED_{sym}", "0"))
+TD_API_KEY = os.getenv("TWELVEDATA_API_KEY", "").strip()
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+BASE_URL = "https://api.twelvedata.com/time_series"
+TD_MIN_SECONDS = float(os.getenv("TD_MIN_SECONDS_BETWEEN_CALLS", "11.0"))
+_last_td_call = 0.0
 
 # =========================
 # COLOURS
 # =========================
-BG       = "#0f0f0f"
-CARD     = "#1a1a1a"
-INNER    = "#111111"
-T1       = "#e8e8e8"
-T2       = "#888888"
-T3       = "#444444"
-BORDER   = "#2a2a2a"
-G_FG     = "#7dc87d"; G_BG = "#1a2a1a"
-R_FG     = "#f08080"; R_BG = "#2a1a1a"
-A_FG     = "#d4a017"; A_BG = "#2a2000"
-B_FG     = "#7a9fd4"; B_BG = "#1a1a2a"
-TEAL     = "#1d9e75"
-ORANGE   = "#EF9F27"
+BG = "#0b0b0d"
+CARD = "#17181c"
+INNER = "#101115"
+INNER2 = "#0c0d10"
+T1 = "#f0f0f2"
+T2 = "#a8abb3"
+T3 = "#5b606b"
+BORDER = "#2b2f38"
+BORDER_SOFT = "#22252c"
+
+GREEN = "#2ecc71"
+GREEN2 = "#16a085"
+RED = "#ff6b6b"
+RED2 = "#e74c3c"
+AMBER = "#f0b43c"
+AMBER2 = "#d68910"
+BLUE = "#5dade2"
+BLUE2 = "#2e86de"
+PURPLE = "#8e7dff"
+TEAL = "#1abc9c"
+
+G_FG, G_BG = "#7ee2a8", "#102419"
+R_FG, R_BG = "#ff9898", "#261315"
+A_FG, A_BG = "#f4c35f", "#2a210d"
+B_FG, B_BG = "#9fc7ff", "#101a2b"
+P_FG, P_BG = "#cbb8ff", "#1b1430"
 
 STAGE_COLORS = [
-    ("#9FE1CB", "#085041"), ("#5DCAA5", "#04342C"), ("#3266ad", "#e6f1fb"),
-    ("#185FA5", "#e6f1fb"), ("#7F77DD", "#EEEDFE"), ("#AFA9EC", "#26215C"),
-    ("#FAC775", "#412402"), ("#EF9F27", "#3a2000"), ("#F0997B", "#4A1B0C"),
-    ("#D85A30", "#FAECE7"), ("#E24B4A", "#FCEBEB"), ("#A32D2D", "#FCEBEB"),
+    ("#9FE1CB", "#085041"),
+    ("#5DCAA5", "#04342C"),
+    ("#3266AD", "#E6F1FB"),
+    ("#185FA5", "#E6F1FB"),
+    ("#7F77DD", "#EEEDFE"),
+    ("#AFA9EC", "#26215C"),
+    ("#FAC775", "#412402"),
+    ("#EF9F27", "#3A2000"),
+    ("#F0997B", "#4A1B0C"),
+    ("#D85A30", "#FAECE7"),
+    ("#E24B4A", "#FCEBEB"),
+    ("#A32D2D", "#FCEBEB"),
     ("#888780", "#F1EFE8"),
 ]
 STAGE_NAMES = [
@@ -76,7 +97,7 @@ def fetch_series(symbol, interval, outputsize):
         "interval": interval,
         "outputsize": str(outputsize),
         "apikey": TD_API_KEY,
-        "format": "JSON"
+        "format": "JSON",
     }
     r = requests.get(BASE_URL, params=params, timeout=30)
     data = r.json()
@@ -113,7 +134,8 @@ def rsi_wilder(close, period=14):
     d = close.diff()
     ag = d.clip(lower=0).ewm(alpha=1 / period, adjust=False).mean()
     al = (-d.clip(upper=0)).ewm(alpha=1 / period, adjust=False).mean()
-    return 100 - (100 / (1 + ag / al))
+    rs = ag / al.replace(0, np.nan)
+    return 100 - (100 / (1 + rs))
 
 def ema(s, span):
     return s.ewm(span=span, adjust=False).mean()
@@ -153,13 +175,20 @@ def vol_regime(val):
     return "Extreme", 1.50
 
 def vol_color(name):
-    return {"Low": G_FG, "Normal": A_FG, "High": R_FG, "Extreme": R_FG}.get(name, T2)
+    return {
+        "Low": G_FG,
+        "Normal": A_FG,
+        "High": R_FG,
+        "Extreme": R_FG,
+        "Unknown": T2,
+    }.get(name, T2)
 
 # =========================
-# CYCLE CLASSIFIER
+# CLASSIFIER
 # =========================
 def classify_cycle(rsi_val, pct_from_high, above_200ma, hist_rising):
     p = pct_from_high
+
     if above_200ma:
         if rsi_val > 70 and p > -5:
             return "Euphoria", 4
@@ -180,34 +209,50 @@ def classify_cycle(rsi_val, pct_from_high, above_200ma, hist_rising):
         if p > -20:
             return "Anxiety", 6
         return "Denial", 7
-    else:
-        if rsi_val < 24 and p < -48:
-            return "Depression", 11
-        if rsi_val < 28 and p < -40:
-            return "Capitulation", 9
-        if rsi_val < 32 and p < -32:
-            return "Anger", 10
-        if rsi_val < 36 and p < -24:
-            return "Panic", 8
-        if rsi_val < 42 and p < -18:
-            return "Denial", 7
-        if rsi_val >= 42 and p < -20 and hist_rising:
-            return "Disbelief", 12
-        return "Anxiety", 6
+
+    if rsi_val < 24 and p < -48:
+        return "Depression", 11
+    if rsi_val < 28 and p < -40:
+        return "Capitulation", 9
+    if rsi_val < 32 and p < -32:
+        return "Anger", 10
+    if rsi_val < 36 and p < -24:
+        return "Panic", 8
+    if rsi_val < 42 and p < -18:
+        return "Denial", 7
+    if rsi_val >= 42 and p < -20 and hist_rising:
+        return "Disbelief", 12
+    return "Anxiety", 6
 
 # =========================
-# LEVELS + ACTIONS
+# LEVELS / ACTIONS
 # =========================
 def compute_levels(close, h52):
+    entry = round(close * 0.97, 2)
+    panic_low = round(h52 * 0.65, 2)
+    panic_high = round(h52 * 0.75, 2)
+    cap_low = round(h52 * 0.50, 2)
+    cap_high = round(h52 * 0.60, 2)
+
+    first_trim_low = round(max(close * 1.08, h52 * 0.88), 2)
+    first_trim_high = round(max(first_trim_low, h52 * 0.94), 2)
+
+    strong_trim_low = round(max(first_trim_high, h52 * 0.94), 2)
+    strong_trim_high = round(h52, 2)
+
+    dist_to_panic = round(((panic_high - close) / close) * 100, 1)
+
     return {
-        "entry": round(close * 0.97, 2),
-        "panic_low": round(h52 * 0.65, 2),
-        "panic_high": round(h52 * 0.75, 2),
-        "cap_low": round(h52 * 0.50, 2),
-        "cap_high": round(h52 * 0.60, 2),
-        "target_low": round(close * 1.08, 2),
-        "target_high": round(min(h52 * 0.96, close * 1.15), 2),
-        "dist_to_panic": round(((h52 * 0.75 - close) / close) * 100, 1),
+        "entry": entry,
+        "panic_low": panic_low,
+        "panic_high": panic_high,
+        "cap_low": cap_low,
+        "cap_high": cap_high,
+        "first_trim_low": first_trim_low,
+        "first_trim_high": first_trim_high,
+        "strong_trim_low": strong_trim_low,
+        "strong_trim_high": strong_trim_high,
+        "dist_to_panic": dist_to_panic,
     }
 
 def buy_speed(pct):
@@ -221,29 +266,46 @@ def buy_speed(pct):
     return "Max"
 
 def determine_actions(stage_name, stage_idx, above_200ma, speed, vol_mult):
-    ct = int(CAPITAL_PER_TICKER * 0.50)
-    tt = int(CAPITAL_PER_TICKER * 0.50)
+    core_total = int(CAPITAL_PER_TICKER * 0.50)
+    tactical_total = int(CAPITAL_PER_TICKER * 0.50)
 
     if any(x in stage_name for x in ["Euphoria", "Thrill"]):
-        ca, cs = "HOLD", 0
+        core_action, core_signal = "HOLD", 0
     elif above_200ma:
-        ca = "BUY dips"
-        cs = round(min(300, ct * 0.20) * vol_mult)
+        core_action = "BUY dips"
+        core_signal = round(min(300, core_total * 0.20) * vol_mult)
     else:
-        ca = "HOLD (below 200MA)"
-        cs = round(min(150, ct * 0.10) * vol_mult)
+        core_action = "HOLD (below 200MA)"
+        core_signal = round(min(150, core_total * 0.10) * vol_mult)
 
     if any(x in stage_name for x in ["Panic", "Capitulation", "Anger"]) or stage_idx in [8, 9, 10]:
-        ta = "BUY"
+        tactical_action = "BUY"
         base = {"Slow": 300, "Medium": 600}.get(speed, 1000)
-        ts = round(min(base * vol_mult, tt))
+        tactical_signal = round(min(base * vol_mult, tactical_total))
     else:
-        ta, ts = "WAIT", 0
+        tactical_action, tactical_signal = "WAIT", 0
 
-    return ca, cs, ta, ts, ct, tt
+    return core_action, core_signal, tactical_action, tactical_signal, core_total, tactical_total
+
+def action_now(r):
+    if r["tactical_action"] == "BUY":
+        return "TACTICAL BUY", R_FG, R_BG
+    if "BUY" in r["core_action"]:
+        return "BUY DIPS", G_FG, G_BG
+    if "HOLD" in r["core_action"] and r["near_trigger"]:
+        return "HOLD / WAIT", A_FG, A_BG
+    return "WAIT", B_FG, B_BG
+
+def stage_short(stage_name):
+    if stage_name == "Optimism → Belief":
+        return "Optimism → Belief"
+    return stage_name
+
+def get_deployed(sym):
+    return float(os.getenv(f"DEPLOYED_{sym}", "0"))
 
 # =========================
-# ANALYZE SYMBOL
+# ANALYSIS
 # =========================
 def analyze_symbol(symbol, vol_mult):
     df_1h = fetch_series(symbol, "1h", 420)
@@ -256,22 +318,29 @@ def analyze_symbol(symbol, vol_mult):
     close = float(df_4h["c"].iloc[-1])
     rsi_v = float(rsi_wilder(df_4h["c"], 14).iloc[-1])
     ml, sl, hist = macd_calc(df_4h["c"])
-    hr = float(hist.iloc[-1]) > float(hist.iloc[-2]) if len(hist) >= 2 else False
+
+    hist_rising = float(hist.iloc[-1]) > float(hist.iloc[-2]) if len(hist) >= 2 else False
     macd_dir = "Bullish" if float(ml.iloc[-1]) > float(sl.iloc[-1]) else "Bearish"
-    macd_text = f"{macd_dir} ({'rising' if hr else 'falling'})"
+    macd_text = f"{macd_dir} ({'hist rising' if hist_rising else 'hist falling'})"
 
     ma200 = float(df_1d["c"].rolling(200).mean().iloc[-1])
     above = close > ma200
     h52 = float(df_1d["h"].tail(252).max())
     pct_h = round(((close - h52) / h52) * 100, 1)
+
     sup = round(float(df_4h["l"].tail(60).min()), 2)
     res = round(float(df_4h["h"].tail(60).max()), 2)
 
-    sn, si = classify_cycle(rsi_v, pct_h, above, hr)
+    stage_name, stage_idx = classify_cycle(rsi_v, pct_h, above, hist_rising)
     levels = compute_levels(close, h52)
     speed = buy_speed(pct_h)
-    ca, cs, ta, ts, ct, tt = determine_actions(sn, si, above, speed, vol_mult)
+    core_action, core_signal, tactical_action, tactical_signal, core_total, tactical_total = determine_actions(
+        stage_name, stage_idx, above, speed, vol_mult
+    )
+
     already_deployed = get_deployed(symbol)
+    signal_today = core_signal + tactical_signal
+    available_after_signal = max(0, CAPITAL_PER_TICKER - already_deployed - signal_today)
 
     return {
         "symbol": symbol,
@@ -287,44 +356,47 @@ def analyze_symbol(symbol, vol_mult):
         "lvl20": round(h52 * 0.80, 2),
         "lvl30": round(h52 * 0.70, 2),
         "lvl40": round(h52 * 0.60, 2),
-        "stage_name": sn,
-        "stage_idx": si,
+        "stage_name": stage_name,
+        "stage_idx": stage_idx,
         "levels": levels,
         "buy_speed": speed,
-        "core_action": ca,
-        "core_signal": cs,
-        "core_total": ct,
-        "tactical_action": ta,
-        "tactical_signal": ts,
-        "tactical_total": tt,
+        "core_action": core_action,
+        "core_signal": core_signal,
+        "core_total": core_total,
+        "tactical_action": tactical_action,
+        "tactical_signal": tactical_signal,
+        "tactical_total": tactical_total,
+        "signal_today": signal_today,
         "near_trigger": levels["dist_to_panic"] > -15,
         "already_deployed": already_deployed,
-        "available": max(0, CAPITAL_PER_TICKER - already_deployed),
+        "available_before_signal": max(0, CAPITAL_PER_TICKER - already_deployed),
+        "available_after_signal": available_after_signal,
     }
 
 # =========================
-# DRAWING HELPERS
+# DRAW HELPERS
 # =========================
-def rbox(ax, x, y, w, h, r=0.008, fc=CARD, ec=BORDER, lw=0.5, z=1):
-    ax.add_patch(FancyBboxPatch(
-        (x, y), w, h,
-        boxstyle=f"round,pad=0,rounding_size={r}",
-        linewidth=lw,
-        edgecolor=ec,
-        facecolor=fc,
-        zorder=z,
-        transform=ax.transAxes,
-        clip_on=False
-    ))
+def rbox(ax, x, y, w, h, r=0.012, fc=CARD, ec=BORDER, lw=0.7, z=1):
+    ax.add_patch(
+        FancyBboxPatch(
+            (x, y),
+            w,
+            h,
+            boxstyle=f"round,pad=0,rounding_size={r}",
+            linewidth=lw,
+            edgecolor=ec,
+            facecolor=fc,
+            transform=ax.transAxes,
+            zorder=z,
+            clip_on=False,
+        )
+    )
 
-def pbar_draw(ax, x, y, w, h, pct, color, z=4):
-    rbox(ax, x, y, w, h, r=0.003, fc=INNER, ec="none", lw=0, z=z)
-    if pct > 0:
-        rbox(ax, x, y, w * min(pct / 100, 1), h, r=0.003, fc=color, ec="none", lw=0, z=z + 1)
-
-def txt(ax, x, y, s, sz=8, c=T1, ha="left", va="center", bold=False, z=6):
+def txt(ax, x, y, s, sz=10, c=T1, ha="left", va="center", bold=False, z=5):
     ax.text(
-        x, y, str(s),
+        x,
+        y,
+        str(s),
         fontsize=sz,
         color=c,
         ha=ha,
@@ -332,40 +404,162 @@ def txt(ax, x, y, s, sz=8, c=T1, ha="left", va="center", bold=False, z=6):
         fontweight="bold" if bold else "normal",
         transform=ax.transAxes,
         zorder=z,
-        clip_on=False
+        clip_on=False,
     )
 
-def bdg(ax, cx, cy, lbl, bg, fg, sz=6.5, z=6):
+def badge(ax, x, y, text, bg, fg, sz=7.2, ha="center", z=7):
     ax.text(
-        cx, cy, str(lbl),
+        x,
+        y,
+        str(text),
         fontsize=sz,
         color=fg,
-        ha="center",
+        ha=ha,
         va="center",
         fontweight="bold",
         transform=ax.transAxes,
-        zorder=z + 1,
-        bbox=dict(boxstyle="round,pad=0.28", facecolor=bg, edgecolor="none")
+        zorder=z,
+        bbox=dict(boxstyle="round,pad=0.26", facecolor=bg, edgecolor="none"),
+        clip_on=False,
     )
 
-def hline(ax, x0, x1, y, color=BORDER, lw=0.4):
-    ax.plot([x0, x1], [y, y], color=color, linewidth=lw, transform=ax.transAxes, clip_on=False, zorder=3)
+def hline(ax, x0, x1, y, color=BORDER_SOFT, lw=0.6):
+    ax.plot([x0, x1], [y, y], color=color, linewidth=lw, transform=ax.transAxes, zorder=3, clip_on=False)
+
+def progress(ax, x, y, w, h, pct, fill, bg=INNER, z=5):
+    rbox(ax, x, y, w, h, r=min(h / 2, 0.004), fc=bg, ec="none", lw=0, z=z)
+    if pct > 0:
+        rbox(ax, x, y, w * max(0, min(1, pct / 100.0)), h, r=min(h / 2, 0.004), fc=fill, ec="none", lw=0, z=z + 1)
+
+def metric_box(ax, x, y, w, h, title, value, sub="", value_color=T1):
+    rbox(ax, x, y, w, h, r=0.008, fc=INNER2, ec="none", lw=0)
+    txt(ax, x + 0.008, y + h - 0.018, title, sz=6.7, c=T3)
+    txt(ax, x + 0.008, y + h - 0.040, value, sz=9.5, c=value_color, bold=True)
+    if sub:
+        txt(ax, x + 0.008, y + 0.012, sub, sz=6.2, c=T3, va="bottom")
+
+def zone_row(ax, x, y, w, label, value, color):
+    txt(ax, x, y, label, sz=7.1, c=T2)
+    txt(ax, x + w, y, value, sz=7.4, c=color, ha="right", bold=True)
+
+def confidence_dots(ax, x, y, n_on=7, n_total=10):
+    for i in range(n_total):
+        c = TEAL if i < n_on else "#31353d"
+        ax.add_patch(Circle((x + i * 0.016, y), 0.0052, color=c, transform=ax.transAxes, zorder=6, clip_on=False))
 
 # =========================
-# BUILD PORTRAIT IMAGE
+# CARD
+# =========================
+def draw_ticker_card(ax, x, y, w, h, r):
+    stage_bg, stage_fg = STAGE_COLORS[r["stage_idx"]]
+    border_col = AMBER2 if r["near_trigger"] else BORDER
+    border_lw = 1.2 if r["near_trigger"] else 0.8
+    rbox(ax, x, y, w, h, r=0.014, fc=CARD, ec=border_col, lw=border_lw, z=1)
+
+    pad = 0.018
+    left = x + pad
+    right = x + w - pad
+    row = y + h - 0.022
+
+    # Header
+    txt(ax, left, row, r["symbol"], sz=16, bold=True)
+    badge(ax, right - 0.02, row + 0.001, stage_short(r["stage_name"]), stage_bg, stage_fg, sz=6.6, ha="right")
+    row -= 0.035
+
+    txt(ax, left, row, f"USD{r['close']:.2f}", sz=15, bold=True)
+    txt(ax, right, row, f"{r['pct_from_high']:.1f}% vs {r['high52w']:.2f}", sz=7.3, c=T2, ha="right")
+    row -= 0.032
+
+    # Badges
+    if r["above_200ma"]:
+        badge(ax, left + 0.030, row, "↑ Above 200MA", G_BG, G_FG, sz=6.9)
+    else:
+        badge(ax, left + 0.030, row, "↓ Below 200MA", R_BG, R_FG, sz=6.9)
+
+    if r["near_trigger"]:
+        badge(ax, left + 0.165, row, "⚠ Near panic", A_BG, A_FG, sz=6.9)
+
+    row -= 0.028
+
+    # Action row
+    action_text, action_fg, action_bg = action_now(r)
+    rbox(ax, left, row - 0.040, w - 2 * pad, 0.042, r=0.010, fc=action_bg, ec="none", lw=0)
+    txt(ax, x + w / 2, row - 0.019, action_text, sz=12.8, c=action_fg, ha="center", bold=True)
+    row -= 0.060
+
+    # Signal boxes
+    bw = (w - 2 * pad - 0.010) / 2
+    metric_box(ax, left, row - 0.056, bw, 0.058, f"Core  £{int(r['core_total'])}", f"£{int(r['core_signal'])}", r["core_action"], value_color=T1)
+    metric_box(ax, left + bw + 0.010, row - 0.056, bw, 0.058, f"Tactical  £{int(r['tactical_total'])}", f"£{int(r['tactical_signal'])}", f"{r['tactical_action']} · {r['buy_speed']}", value_color=T1)
+
+    # Bottom bars inside boxes
+    progress(ax, left + 0.010, row - 0.050, bw - 0.020, 0.007, (r["core_signal"] / max(1, r["core_total"])) * 100, GREEN2)
+    progress(ax, left + bw + 0.020, row - 0.050, bw - 0.020, 0.007, (r["tactical_signal"] / max(1, r["tactical_total"])) * 100, BLUE2)
+    row -= 0.078
+
+    # Indicator strip
+    small_w = (w - 2 * pad - 0.018) / 4
+    indicator_y = row - 0.050
+    indicators = [
+        ("RSI", f"{r['rsi']}", ""),
+        ("MACD", r["macd_text"].replace(" (", "\n("), ""),
+        ("200MA", f"USD{r['ma200']:.2f}", ""),
+        ("S/R", f"{r['sup']}/{r['res']}", ""),
+    ]
+    for i, (title, value, sub) in enumerate(indicators):
+        metric_box(ax, left + i * (small_w + 0.006), indicator_y, small_w, 0.052, title, value, sub, value_color=T1)
+    row -= 0.068
+
+    rbox(ax, left, row - 0.024, w - 2 * pad, 0.025, r=0.006, fc=INNER2, ec="none", lw=0)
+    txt(ax, left + 0.008, row - 0.012, f"52W:  -20% {r['lvl20']}   ·   -30% {r['lvl30']}   ·   -40% {r['lvl40']}", sz=6.8, c=T2)
+    row -= 0.040
+
+    hline(ax, left, right, row)
+    row -= 0.018
+
+    txt(ax, left, row, "PSYCHOLOGY PRICE MAP", sz=7.1, c=T3, bold=True)
+    row -= 0.023
+
+    zone_row(ax, left, row, w - 2 * pad, "Add zone", f"USD{r['levels']['entry']:.2f}", T1)
+    row -= 0.022
+    zone_row(ax, left, row, w - 2 * pad, "Panic zone", f"USD{r['levels']['panic_low']:.2f} – {r['levels']['panic_high']:.2f}", R_FG)
+    row -= 0.022
+    zone_row(ax, left, row, w - 2 * pad, "Capitulation zone", f"USD{r['levels']['cap_low']:.2f} – {r['levels']['cap_high']:.2f}", R_FG)
+    row -= 0.022
+    zone_row(ax, left, row, w - 2 * pad, "First trim zone", f"USD{r['levels']['first_trim_low']:.2f} – {r['levels']['first_trim_high']:.2f}", G_FG)
+    row -= 0.022
+    zone_row(ax, left, row, w - 2 * pad, "Strong trim zone", f"USD{r['levels']['strong_trim_low']:.2f} – {r['levels']['strong_trim_high']:.2f}", G_FG)
+    row -= 0.022
+    zone_row(ax, left, row, w - 2 * pad, "Dist to panic", f"{r['levels']['dist_to_panic']:.1f}%", A_FG if r["near_trigger"] else T2)
+    row -= 0.028
+
+    hline(ax, left, right, row)
+    row -= 0.018
+
+    txt(ax, left, row, "CAPITAL POSITION", sz=7.1, c=T3, bold=True)
+    row -= 0.023
+
+    zone_row(ax, left, row, w - 2 * pad, "Already deployed", f"£{int(r['already_deployed'])}", T1)
+    row -= 0.022
+    zone_row(ax, left, row, w - 2 * pad, "Available before signal", f"£{int(r['available_before_signal'])}", B_FG)
+    row -= 0.022
+    zone_row(ax, left, row, w - 2 * pad, "Available after signal", f"£{int(r['available_after_signal'])}", B_FG)
+
+# =========================
+# DASHBOARD
 # =========================
 def build_dashboard(results, vol_sym, vol_val, vol_rname, vol_mult, ts):
-    import matplotlib as mpl
-    mpl.rcParams["text.usetex"] = False
-
     n = len(results)
+    cols = min(3, max(1, n))
+    rows = math.ceil(n / cols)
 
-    # Increased width for better text clarity
-    W = 8.5
-    TICKER_H = 5.8
-    HEADER_H = 2.2
-    FOOTER_H = 1.8
-    H = HEADER_H + n * TICKER_H + FOOTER_H
+    W = 16.0
+    HEADER_H = 1.9
+    CYCLE_H = 1.0
+    ROW_H = 6.2
+    FOOTER_H = 3.0
+    GAP_H = 0.25
+    H = HEADER_H + CYCLE_H + rows * ROW_H + FOOTER_H + GAP_H * (rows + 2)
 
     fig = plt.figure(figsize=(W, H), facecolor=BG)
     ax = fig.add_axes([0, 0, 1, 1])
@@ -374,277 +568,110 @@ def build_dashboard(results, vol_sym, vol_val, vol_rname, vol_mult, ts):
     ax.axis("off")
     ax.set_facecolor(BG)
 
-    header_frac = HEADER_H / H
-    ticker_frac = TICKER_H / H
-    footer_frac = FOOTER_H / H
-
     M = 0.035
-    W2 = 1 - 2 * M
-    y = 0.995
+    usable_w = 1 - 2 * M
+    cursor_y = 0.98
 
-    # HEADER
-    txt(ax, M, y, "MARKET CYCLE DASHBOARD", sz=13, bold=True)
-    txt(ax, 1 - M, y, ts, sz=7.5, c=T3, ha="right")
-    y -= 0.014
+    # Header
+    txt(ax, M, cursor_y, "MARKET CYCLE DASHBOARD", sz=17, bold=True)
+    txt(ax, 1 - M, cursor_y, ts, sz=8.8, c=T3, ha="right")
+    cursor_y -= 0.028
 
-    sh = header_frac * 0.38
-    rbox(ax, M, y - sh, W2, sh, fc=CARD, ec=BORDER)
-    vol_str = f"{vol_val:.1f}" if vol_val else "N/A"
-    vox = [
-        (vol_sym, "Value", vol_str, vol_color(vol_rname)),
-        ("Regime", "State", vol_rname, vol_color(vol_rname)),
-        ("Mult", "Scale", f"{vol_mult:.2f}×", T1),
-        ("Capital", "Per ticker", f"£{int(CAPITAL_PER_TICKER)}", T1),
-        ("Split", "Core/Tact", "50% Core · 50%", T2),
+    strip_h = 0.058
+    rbox(ax, M, cursor_y - strip_h, usable_w, strip_h, r=0.012, fc=CARD, ec=BORDER, lw=0.8)
+    strip = [
+        (vol_sym, f"{vol_val:.1f}" if vol_val is not None else "N/A", vol_color(vol_rname)),
+        ("Regime", vol_rname, vol_color(vol_rname)),
+        ("Tactical ×", f"{vol_mult:.2f}×", T1),
+        ("Capital", f"£{int(CAPITAL_PER_TICKER)} / ticker", T1),
+        ("Structure", "50% Core · 50% Tactical", T1),
     ]
-    xi = M + 0.012
-    sw = W2 / len(vox)
-    for lbl, sub, val, col in vox:
-        txt(ax, xi, y - sh * 0.22, lbl, sz=7.2, c=T3)
-        txt(ax, xi, y - sh * 0.48, sub, sz=6.4, c=T3)
-        txt(ax, xi, y - sh * 0.73, val, sz=9.0, c=col, bold=True)
-        xi += sw
-    y -= sh + 0.015
+    sw = usable_w / len(strip)
+    for i, (label, value, c) in enumerate(strip):
+        sx = M + i * sw + 0.012
+        txt(ax, sx, cursor_y - 0.017, label, sz=6.8, c=T3)
+        txt(ax, sx, cursor_y - 0.041, value, sz=10.0, c=c, bold=True)
+    cursor_y -= strip_h + 0.020
 
-    txt(ax, M, y, "Cycle position", sz=7, c=T3)
-    y -= 0.011
-    bh = header_frac * 0.28
-    seg_w = W2 / len(STAGE_NAMES)
-    active = {r["stage_idx"] for r in results}
-    for i, (sn, (bg, fg)) in enumerate(zip(STAGE_NAMES, STAGE_COLORS)):
+    # Cycle bar
+    txt(ax, M, cursor_y, "Market cycle position", sz=7.2, c=T3)
+    cursor_y -= 0.016
+
+    seg_h = 0.038
+    seg_w = usable_w / len(STAGE_NAMES)
+    active_idxs = {r["stage_idx"] for r in results}
+    for i, (name, (bg, fg)) in enumerate(zip(STAGE_NAMES, STAGE_COLORS)):
         sx = M + i * seg_w
-        lw = 2.0 if i in active else 0.4
-        ec = "#ffffff" if i in active else BORDER
-        rbox(ax, sx, y - bh, seg_w, bh, r=0.003, fc=bg, ec=ec, lw=lw, z=3)
-        ax.text(
-            sx + seg_w / 2,
-            y - bh / 2,
-            sn,
-            fontsize=6.0,
-            color=fg,
-            ha="center",
-            va="center",
-            fontweight="bold" if i in active else "normal",
-            transform=ax.transAxes,
-            clip_on=True,
-            zorder=4
-        )
-    y -= bh + 0.018
+        active = i in active_idxs
+        rbox(ax, sx, cursor_y - seg_h, seg_w - 0.001, seg_h, r=0.004, fc=bg, ec="#ffffff" if active else BORDER, lw=1.5 if active else 0.5)
+        txt(ax, sx + (seg_w - 0.001) / 2, cursor_y - seg_h / 2, name, sz=6.5, c=fg, ha="center", bold=active)
+    cursor_y -= seg_h + 0.022
 
-    # TICKER CARDS
-    for r in results:
-        sc_bg, sc_fg = STAGE_COLORS[r["stage_idx"]]
-        bc = "#8a5a00" if r["near_trigger"] else BORDER
-        blw = 1.2 if r["near_trigger"] else 0.5
-        ch = ticker_frac * 0.96
-        cy = y - ch
-        rbox(ax, M, cy, W2, ch, r=0.010, fc=CARD, ec=bc, lw=blw)
+    # Cards
+    col_gap = 0.013
+    card_w = (usable_w - (cols - 1) * col_gap) / cols
+    card_h = 0.49 if rows == 1 else min(0.49, (cursor_y - 0.19 - FOOTER_H / H) / rows)
+    if rows > 1:
+        card_h = 0.40
 
-        lx = M + 0.014
-        rx = M + W2 - 0.014
-        row = cy + ch - 0.016
+    current_y = cursor_y
+    for idx, r in enumerate(results):
+        row = idx // cols
+        col = idx % cols
+        cx = M + col * (card_w + col_gap)
+        cy = current_y - (row + 1) * card_h - row * 0.018
+        draw_ticker_card(ax, cx, cy, card_w, card_h, r)
 
-        txt(ax, lx, row, r["symbol"], sz=16, bold=True)
-        txt(ax, lx + 0.13, row, f"USD{r['close']:.2f}", sz=13, bold=True, c=T1)
-        txt(ax, rx, row, f"{r['pct_from_high']:.1f}% from 52W high", sz=8, c=T2, ha="right")
-        row -= 0.024
+    cursor_y = current_y - rows * card_h - (rows - 1) * 0.018 - 0.028
 
-        bdg(ax, lx + 0.050, row, r["stage_name"], sc_bg + "66", sc_bg, sz=8.0)
-        tbg = G_BG if r["above_200ma"] else R_BG
-        tfg = G_FG if r["above_200ma"] else R_FG
-        bdg(ax, lx + 0.185, row, ("↑ Above" if r["above_200ma"] else "↓ Below") + " 200MA", tbg, tfg, sz=7.8)
-        if r["near_trigger"]:
-            bdg(ax, lx + 0.330, row, "⚠ Near panic", A_BG, A_FG, sz=7.8)
-        row -= 0.021
+    # Footer: VUAG reserve
+    reserve_h = 0.10
+    rbox(ax, M, cursor_y - reserve_h, usable_w, reserve_h, r=0.012, fc=CARD, ec=BORDER, lw=0.8)
+    txt(ax, M + 0.012, cursor_y - 0.018, "VUAG — Reserve (profit proceeds only)", sz=8.3, c=T3)
 
-        hline(ax, lx, rx, row)
-        row -= 0.011
-
-        ind = [
-            ("RSI(14)", str(r["rsi"])),
-            ("MACD", r["macd_text"]),
-            ("200MA", f"USD{r['ma200']:.2f}"),
-            ("S / R", f"USD{r['sup']} / USD{r['res']}")
-        ]
-        iw = W2 * 0.24
-        ix = lx
-        for lbl, val in ind:
-            rbox(ax, ix, row - 0.036, iw - 0.008, 0.040, r=0.005, fc=INNER, ec="none", lw=0)
-            txt(ax, ix + 0.006, row - 0.010, lbl, sz=7.0, c=T3)
-            txt(ax, ix + 0.006, row - 0.026, val, sz=8.0, bold=True)
-            ix += W2 * 0.245
-        row -= 0.049
-
-        rbox(ax, lx, row - 0.022, W2 - 0.028, 0.026, r=0.004, fc=INNER, ec="none", lw=0)
-        txt(
-            ax, lx + 0.008, row - 0.010,
-            f"52W {r['high52w']:.2f}  ·  -20pct {r['lvl20']}  ·  -30pct {r['lvl30']}  ·  -40pct {r['lvl40']}",
-            sz=7.2, c=T2
-        )
-        row -= 0.034
-
-        hline(ax, lx, rx, row)
-        row -= 0.011
-
-        txt(ax, lx, row, "CAPITAL POSITION", sz=7, c=T3, bold=True)
-        row -= 0.017
-
-        bw = (W2 - 0.028) / 3
-        cards = [
-            (
-                "Already deployed",
-                f"£{int(r['already_deployed'])}",
-                "Currently in position",
-                int(r["already_deployed"] / CAPITAL_PER_TICKER * 100),
-                TEAL
-            ),
-            (
-                "Signal today",
-                f"£{r['core_signal'] + r['tactical_signal']}",
-                f"Core £{r['core_signal']} + Tact £{r['tactical_signal']}",
-                int((r["core_signal"] + r["tactical_signal"]) / CAPITAL_PER_TICKER * 100),
-                ORANGE
-            ),
-            (
-                "Still available",
-                f"£{int(max(0, r['available'] - (r['core_signal'] + r['tactical_signal'])))}",
-                "Undeployed capital",
-                int(max(0, r["available"] - r["core_signal"] - r["tactical_signal"]) / CAPITAL_PER_TICKER * 100),
-                B_FG
-            ),
-        ]
-
-        for i, (lbl, val, sub, bar_pct, bar_col) in enumerate(cards):
-            bx = lx + i * (bw + 0.006)
-            rbox(ax, bx, row - 0.064, bw, 0.066, r=0.006, fc=INNER, ec="none", lw=0)
-            txt(ax, bx + 0.006, row - 0.014, lbl, sz=7.0, c=T3)
-            txt(ax, bx + 0.006, row - 0.031, val, sz=11.0, bold=True, c=T1)
-            txt(ax, bx + 0.006, row - 0.046, sub, sz=6.2, c=T3)
-            pbar_draw(ax, bx + 0.006, row - 0.058, bw - 0.012, 0.007, bar_pct, bar_col)
-        row -= 0.078
-
-        txt(ax, lx, row, "Core:", sz=7.5, c=T2)
-        ca_bg = G_BG if "BUY" in r["core_action"] else A_BG
-        ca_fg = G_FG if "BUY" in r["core_action"] else A_FG
-        bdg(ax, lx + 0.076, row, r["core_action"], ca_bg, ca_fg, sz=7.5)
-
-        txt(ax, lx + 0.24, row, "Tactical:", sz=7.5, c=T2)
-        ta_bg = G_BG if r["tactical_action"] == "BUY" else B_BG
-        ta_fg = G_FG if r["tactical_action"] == "BUY" else B_FG
-        bdg(ax, lx + 0.355, row, f"{r['tactical_action']} · {r['buy_speed']}", ta_bg, ta_fg, sz=7.5)
-        row -= 0.020
-
-        hline(ax, lx, rx, row)
-        row -= 0.011
-
-        txt(ax, lx, row, "PRICE ZONES", sz=7, c=T3, bold=True)
-        row -= 0.017
-
-        zones = [
-            ("Entry zone", f"USD{r['levels']['entry']}", T1),
-            ("Panic zone", f"USD{r['levels']['panic_low']} – USD{r['levels']['panic_high']}", R_FG),
-            ("Capitulation", f"USD{r['levels']['cap_low']} – USD{r['levels']['cap_high']}", R_FG),
-            ("Target zone", f"USD{r['levels']['target_low']} – USD{r['levels']['target_high']}", G_FG),
-            ("Dist to panic", f"{r['levels']['dist_to_panic']:.1f}%", R_FG if r['levels']['dist_to_panic'] > -20 else T2),
-        ]
-
-        mid = len(zones) // 2 + len(zones) % 2
-        for col_i, zone_slice in enumerate([zones[:mid], zones[mid:]]):
-            zx = lx if col_i == 0 else lx + W2 * 0.50
-            zrow = row
-            for lbl, val, vc in zone_slice:
-                rbox(ax, zx, zrow - 0.022, W2 * 0.46, 0.025, r=0.004, fc=INNER, ec="none", lw=0)
-                txt(ax, zx + 0.006, zrow - 0.010, lbl, sz=7.0, c=T2)
-                txt(ax, zx + W2 * 0.44, zrow - 0.010, val, sz=7.4, c=vc, ha="right", bold=True)
-                zrow -= 0.027
-
-        y -= ch + 0.013
-
-    # FOOTER
-    rbox(ax, M, y - footer_frac * 0.92, W2, footer_frac * 0.92, r=0.010, fc=CARD, ec=BORDER)
-
-    fy = y - footer_frac * 0.08
-    txt(ax, M + 0.014, fy, "VUAG — Reserve (profit proceeds only)", sz=8, c=T2, bold=True)
-    fy -= 0.020
-
-    vuag_bw = W2 / 4
-    vuag_data = [
-        ("Price", "£95.20", ""),
-        ("Profits banked", "£800", "Realised from cycles"),
-        ("VUAG allocated", "£320", "50% cap = £400 max"),
-        ("Cap remaining", "£80", "Before limit hit"),
+    reserve_y = cursor_y - 0.034
+    bw = (usable_w - 0.024 - 0.018) / 3
+    reserve_boxes = [
+        ("Price", "£95.20", "Add from profit proceeds only", TEAL),
+        ("Realised profits", "£800", "From tactical cycles", TEAL),
+        ("VUAG allocated", "£320", "Cap £400 = 50% of profits", TEAL),
     ]
-    vxi = M + 0.014
-    for lbl, val, sub in vuag_data:
-        rbox(ax, vxi, fy - 0.058, vuag_bw - 0.010, 0.061, r=0.005, fc=INNER, ec="none", lw=0)
-        txt(ax, vxi + 0.005, fy - 0.014, lbl, sz=7.0, c=T3)
-        txt(ax, vxi + 0.005, fy - 0.030, val, sz=10.0, bold=True)
-        if sub:
-            txt(ax, vxi + 0.005, fy - 0.045, sub, sz=6.0, c=T3)
-        pbar_draw(ax, vxi + 0.005, fy - 0.054, vuag_bw - 0.020, 0.006, 80, TEAL)
-        vxi += vuag_bw
+    for i, (title, value, sub, col) in enumerate(reserve_boxes):
+        bx = M + 0.012 + i * (bw + 0.009)
+        metric_box(ax, bx, reserve_y - 0.042, bw, 0.048, title, value, sub, value_color=T1)
+        progress(ax, bx + 0.010, reserve_y - 0.035, bw - 0.020, 0.006, 80 if i < 2 else 70, col)
+    txt(ax, M + 0.012, cursor_y - reserve_h + 0.010, "Rule: add from profit proceeds only · cap at 50% of realised profits · hold if above 200MA · never fund tactical buys", sz=6.2, c=T3, va="bottom")
+    cursor_y -= reserve_h + 0.020
 
-    txt(
-        ax, M + 0.014, fy - 0.068,
-        "Add from profit proceeds only · Cap 50% of profits · Hold if above 200MA · Never sell to fund tactical trades",
-        sz=6.4, c=T3
-    )
-    fy -= 0.086
+    # Portfolio summary
+    summary_h = 0.085
+    rbox(ax, M, cursor_y - summary_h, usable_w, summary_h, r=0.012, fc=CARD, ec=BORDER, lw=0.8)
+    txt(ax, M + 0.012, cursor_y - 0.018, "PORTFOLIO SUMMARY", sz=8.3, c=T3)
 
-    hline(ax, M + 0.014, M + W2 - 0.014, fy)
-    fy -= 0.013
+    total_core = sum(r["core_signal"] for r in results)
+    total_tactical = sum(r["tactical_signal"] for r in results)
+    total_capacity = len(results) * int(CAPITAL_PER_TICKER)
+    tactical_triggers = [r["symbol"] for r in results if r["tactical_action"] == "BUY"]
 
-    txt(ax, M + 0.014, fy, "PORTFOLIO SUMMARY", sz=7.5, c=T2, bold=True)
-    fy -= 0.020
-
-    total_already = sum(r["already_deployed"] for r in results)
-    total_signal = sum(r["core_signal"] + r["tactical_signal"] for r in results)
-    total_available = sum(r["available"] for r in results)
-    triggers = [r["symbol"] for r in results if r["tactical_action"] == "BUY"]
-    cap = len(results) * int(CAPITAL_PER_TICKER)
-
-    s_items = [
-        ("Already in positions", f"£{int(total_already)}", "Currently deployed capital", TEAL),
-        ("Signal today", f"£{int(total_signal)}", "Suggested to deploy now", ORANGE),
-        ("Available capital", f"£{int(total_available)}", "Undeployed, ready to use", B_FG),
-        ("Total capacity", f"£{cap}", f"{len(results)} tickers × £{int(CAPITAL_PER_TICKER)}", T2),
+    items = [
+        ("Core signals today", f"£{int(total_core)}"),
+        ("Tactical signals today", f"£{int(total_tactical)}"),
+        ("Total capacity", f"£{int(total_capacity)}"),
+        ("VUAG reserve", "£320"),
+        ("Tactical triggers", ", ".join(tactical_triggers) if tactical_triggers else "NONE — WAIT"),
     ]
-    sw2 = W2 / len(s_items)
-    sxi = M + 0.014
-    for lbl, val, sub, col in s_items:
-        txt(ax, sxi, fy, lbl, sz=6.8, c=T3)
-        txt(ax, sxi, fy - 0.016, val, sz=10.2, c=col, bold=True)
-        txt(ax, sxi, fy - 0.029, sub, sz=6.0, c=T3)
-        sxi += sw2
+    sw2 = usable_w / len(items)
+    base_y = cursor_y - 0.047
+    for i, (label, value) in enumerate(items):
+        sx = M + i * sw2 + 0.012
+        txt(ax, sx, base_y + 0.016, label, sz=6.6, c=T3)
+        txt(ax, sx, base_y - 0.002, value, sz=10.5, c=G_FG if i == 4 and tactical_triggers else (T1 if i != 4 else A_FG), bold=True)
 
-    fy -= 0.040
-    if triggers:
-        bdg(ax, M + 0.08, fy, f"🚨 Tactical BUY: {', '.join(triggers)}", R_BG, R_FG, sz=8)
-    else:
-        bdg(ax, M + 0.11, fy, "No tactical triggers — market not in Panic/Capitulation", INNER, G_FG, sz=7.2)
-
-    dx = M + 0.014
-    dy = fy - 0.022
-    for i in range(10):
-        c2 = plt.Circle(
-            (dx + i * 0.020, dy),
-            0.006,
-            color=TEAL if i < 7 else "#333333",
-            transform=ax.transAxes,
-            clip_on=False
-        )
-        ax.add_patch(c2)
-    txt(ax, dx + 10 * 0.020 + 0.010, dy, "7/10 confidence", sz=7.2, c=T3, va="center")
+    confidence_dots(ax, M + 0.016, cursor_y - summary_h + 0.018, n_on=7, n_total=10)
+    txt(ax, M + 0.19, cursor_y - summary_h + 0.018, "7/10 confidence", sz=7.0, c=T2)
 
     buf = io.BytesIO()
-    fig.savefig(
-        buf,
-        format="png",
-        dpi=260,
-        bbox_inches=None,
-        facecolor=BG,
-        pad_inches=0.05
-    )
+    fig.savefig(buf, format="png", dpi=260, facecolor=BG, bbox_inches=None, pad_inches=0.05)
     plt.close(fig)
     buf.seek(0)
     return buf
@@ -652,39 +679,40 @@ def build_dashboard(results, vol_sym, vol_val, vol_rname, vol_mult, ts):
 # =========================
 # TELEGRAM
 # =========================
-def send_photo(img_buf, caption):
+def send_dashboard(img_buf, caption):
     r = requests.post(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument",
         data={
             "chat_id": TELEGRAM_CHAT_ID,
-            "caption": caption[:900],
-            "disable_web_page_preview": True
+            "caption": caption[:950],
+            "disable_web_page_preview": True,
         },
         files={
-            "document": ("dashboard.png", img_buf.getvalue(), "image/png")
+            "document": ("market_cycle_dashboard.png", img_buf.getvalue(), "image/png"),
         },
-        timeout=60
+        timeout=90,
     )
     print("sendDocument status:", r.status_code)
-    print("sendDocument response:", r.text)
+    print("sendDocument response:", r.text[:800])
     r.raise_for_status()
 
 def send_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    for chunk in [text[i:i + 3800] for i in range(0, len(text), 3800)]:
+    chunks = [text[i:i + 3800] for i in range(0, len(text), 3800)]
+    for chunk in chunks:
         r = requests.post(
             url,
             data={
                 "chat_id": TELEGRAM_CHAT_ID,
                 "text": chunk,
-                "disable_web_page_preview": True
+                "disable_web_page_preview": True,
             },
-            timeout=30
+            timeout=30,
         )
         print("sendMessage status:", r.status_code)
-        print("sendMessage response:", r.text)
+        print("sendMessage response:", r.text[:800])
         r.raise_for_status()
-        time.sleep(0.3)
+        time.sleep(0.25)
 
 # =========================
 # MAIN
@@ -701,7 +729,8 @@ def main():
     vol_sym, vol_val = get_vol_value()
     vol_rname, vol_mult = vol_regime(vol_val)
 
-    results, failures = [], []
+    results = []
+    failures = []
     for sym in SYMBOLS:
         try:
             results.append(analyze_symbol(sym, vol_mult))
@@ -712,23 +741,24 @@ def main():
         raise RuntimeError("All symbols failed:\n" + "\n".join(failures))
 
     img_buf = build_dashboard(results, vol_sym, vol_val, vol_rname, vol_mult, ts)
-    triggers = [r["symbol"] for r in results if r["tactical_action"] == "BUY"]
+    tactical_triggers = [r["symbol"] for r in results if r["tactical_action"] == "BUY"]
 
-    cap_lines = [
+    caption_lines = [
         f"📊 Market Cycle Dashboard — {ts}",
-        f"{vol_sym}: {f'{vol_val:.1f}' if vol_val else 'N/A'} | {vol_rname} | ×{vol_mult:.2f}",
-        ("🚨 Tactical BUY: " + ", ".join(triggers)) if triggers else "No tactical triggers",
-    ] + [
-        f"{r['symbol']}: {r['stage_name']} | Core {r['core_action']} | Tactical {r['tactical_action']}"
-        for r in results
+        f"{vol_sym}: {f'{vol_val:.1f}' if vol_val is not None else 'N/A'} | {vol_rname} | ×{vol_mult:.2f}",
+        ("🚨 Tactical BUY: " + ", ".join(tactical_triggers)) if tactical_triggers else "No tactical triggers",
     ]
+    for r in results:
+        caption_lines.append(
+            f"{r['symbol']}: {r['stage_name']} | Action {action_now(r)[0]} | Core £{int(r['core_signal'])} | Tactical £{int(r['tactical_signal'])}"
+        )
 
-    send_photo(img_buf, "\n".join(cap_lines))
+    send_dashboard(img_buf, "\n".join(caption_lines))
 
     if failures:
         send_message("⚠️ Cycle bot failures:\n" + "\n".join(failures))
 
-    print(f"Sent. {ts}. Triggers: {triggers}")
+    print(f"Sent dashboard. {ts}. Tactical triggers: {tactical_triggers}")
 
 if __name__ == "__main__":
     main()
