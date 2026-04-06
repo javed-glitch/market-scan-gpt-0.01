@@ -30,41 +30,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests pandas numpy matplotlib
 
-      # ✅ DEBUG STEP — DO NOT SKIP
-      - name: Test Telegram delivery
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.CYCLE_TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.CYCLE_TELEGRAM_CHAT_ID }}
-        run: |
-          python - <<'PY'
-          import os, requests
-
-          token = os.getenv("TELEGRAM_BOT_TOKEN")
-          chat_id = os.getenv("TELEGRAM_CHAT_ID")
-
-          print("Bot token present:", bool(token))
-          print("Chat ID value:", chat_id)
-
-          # Check bot identity
-          me = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=30)
-          print("getMe:", me.status_code, me.text)
-
-          # Send test message
-          r = requests.post(
-              f"https://api.telegram.org/bot{token}/sendMessage",
-              data={
-                  "chat_id": chat_id,
-                  "text": "Cycle bot TEST message from GitHub Actions"
-              },
-              timeout=30
-          )
-
-          print("sendMessage status:", r.status_code)
-          print("sendMessage response:", r.text)
-
-          r.raise_for_status()
-          PY
-
       - name: Run cycle dashboard
         env:
           SYMBOLS: TSLA,NVDA,PLTR
