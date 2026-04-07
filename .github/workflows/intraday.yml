@@ -3,8 +3,6 @@ name: Intraday Scan (runs intraday branch only)
 on:
   workflow_dispatch:
   schedule:
-    workflow_dispatch:
-  schedule:
     # Market open (9:30 AM ET)
     - cron: "30 14 * * 1-5"
     # Mid-session: 1:00 PM ET = 18:00 UTC (Mon–Fri)
