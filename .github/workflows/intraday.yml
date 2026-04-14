@@ -1,5 +1,4 @@
 name: Intraday Scan (runs intraday branch only)
-
 on:
   workflow_dispatch:
   schedule:
@@ -9,54 +8,44 @@ on:
     - cron: "0 18 * * 1-5"
     # Pre-close: 3:45 PM ET = 20:45 UTC (Mon–Fri)
     - cron: "45 20 * * 1-5"
-
     # - cron: "0 */4 * * 1-5"   # every 4 hours, weekdays (UTC)
-
 jobs:
   intraday:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout intraday branch
         uses: actions/checkout@v4
         with:
           ref: intraday
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
       - name: Run intraday (Order Setter)
         env:
           SYMBOLS: NVDA,AMAT,PLTR,TSLA,ORCL,MSFT,CRWV,NBIS
-
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
-
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-4o-mini
-
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-
           # Order-Setter params (tweak anytime)
           BB_PERIOD: "20"
           BB_STD: "1.5"
           NEAR_BAND_PCT: "0.003"
           RSI_BUY_MAX: "40"
           RSI_SELL_MIN: "60"
-
           TD_MIN_SECONDS_BETWEEN_CALLS: "9.0"
           CHART_BARS: "140"
         run: |
           python intraday.py
-
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
