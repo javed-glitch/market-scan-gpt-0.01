@@ -30,6 +30,18 @@ _last_td_call = 0.0
 
 YF_SYMBOL_MAP = {"VUSA": "VUSA.L"}
 
+# Currency per symbol — default USD, override for non-USD listed assets
+CURRENCY_MAP = {
+    "VUSA": "GBP",
+    "VUSA.L": "GBP",
+}
+
+def get_currency(symbol: str) -> str:
+    return CURRENCY_MAP.get(symbol.upper(), "USD")
+
+def currency_sym(symbol: str) -> str:
+    return "£" if get_currency(symbol) == "GBP" else "USD "
+
 def get_deployed(sym: str) -> float:
     return float(os.getenv(f"DEPLOYED_{sym}", "0"))
 
@@ -304,6 +316,8 @@ def analyze_symbol(symbol, vol_mult):
         "already_deployed":deployed,
         "available_before_signal":max(0,CAPITAL_PER_TICKER-deployed),
         "available_after_signal":max(0,CAPITAL_PER_TICKER-deployed-cs-ts),
+        "currency": get_currency(symbol),
+        "csym": currency_sym(symbol),
     }
 
 # =========================
@@ -381,8 +395,8 @@ def draw_ticker_card(ax, cx, cy, cw, ch, r):
     badge(ax, rx,     Y(0.955), r["stage_name"], stage_bg, stage_fg, sz=5.5, ha="right")
 
     # ── PRICE ROW ───────────────────────────────────────────────
-    txt(ax, lx,       Y(0.895), f"USD{r['close']:.2f}", sz=11, bold=True)
-    txt(ax, rx,       Y(0.895), f"{r['pct_from_high']:.1f}% vs {r['high52w']:.2f}",
+    txt(ax, lx,       Y(0.895), f"{r['csym']}{r['close']:.2f}", sz=11, bold=True)
+    txt(ax, rx,       Y(0.895), f"{r['pct_from_high']:.1f}% vs {r['csym']}{r['high52w']:.2f}",
         sz=6, c=T2, ha="right")
 
     # ── STATUS BADGES ───────────────────────────────────────────
@@ -430,7 +444,7 @@ def draw_ticker_card(ax, cx, cy, cw, ch, r):
         ("RSI",   str(r["rsi"]),  ""),
         ("MACD",  "Bullish" if "Bullish" in r["macd_text"] else "Bearish",
                   "rising"  if "rising"  in r["macd_text"] else "falling"),
-        ("200MA", f"USD{r['ma200']:.0f}", ""),
+        ("200MA", f"{r['csym']}{r['ma200']:.0f}", ""),
         ("S/R",   f"{r['sup']:.0f}/{r['res']:.0f}", ""),
     ]
     for i,(title,value,sub) in enumerate(ind_data):
@@ -455,11 +469,11 @@ def draw_ticker_card(ax, cx, cy, cw, ch, r):
     # ── PRICE ZONES ─────────────────────────────────────────────
     # 6 zone rows, evenly spaced from 0.385 down to 0.065
     zones = [
-        ("Add zone",     f"USD{r['levels']['entry']:.2f}",                                                T1),
-        ("Panic zone",   f"USD{r['levels']['panic_low']:.2f} – {r['levels']['panic_high']:.2f}",          R_FG),
-        ("Capitulation", f"USD{r['levels']['cap_low']:.2f} – {r['levels']['cap_high']:.2f}",              R_FG),
-        ("First trim",   f"USD{r['levels']['first_trim_low']:.2f} – {r['levels']['first_trim_high']:.2f}",G_FG),
-        ("Strong trim",  f"USD{r['levels']['strong_trim_low']:.2f} – {r['levels']['strong_trim_high']:.2f}",G_FG),
+        ("Add zone",     f"{r['csym']}{r['levels']['entry']:.2f}",                                                T1),
+        ("Panic zone",   f"{r['csym']}{r['levels']['panic_low']:.2f} – {r['csym']}{r['levels']['panic_high']:.2f}",          R_FG),
+        ("Capitulation", f"{r['csym']}{r['levels']['cap_low']:.2f} – {r['csym']}{r['levels']['cap_high']:.2f}",              R_FG),
+        ("First trim",   f"{r['csym']}{r['levels']['first_trim_low']:.2f} – {r['csym']}{r['levels']['first_trim_high']:.2f}",G_FG),
+        ("Strong trim",  f"{r['csym']}{r['levels']['strong_trim_low']:.2f} – {r['csym']}{r['levels']['strong_trim_high']:.2f}",G_FG),
         ("Dist to panic",f"{r['levels']['dist_to_panic']:.1f}%",
                          A_FG if r["near_trigger"] else T2),
     ]
