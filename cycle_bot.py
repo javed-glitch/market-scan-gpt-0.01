@@ -11,11 +11,12 @@ from matplotlib.patches import FancyBboxPatch, Circle
 import numpy as np
 import pandas as pd
 import requests
+import yfinance as yf
 
 # =========================
 # CONFIG
 # =========================
-SYMBOLS = [s.strip().upper() for s in os.getenv("SYMBOLS", "TSLA,NVDA,PLTR").split(",") if s.strip()]
+SYMBOLS = [s.strip().upper() for s in os.getenv("SYMBOLS", "TSLA,NVDA,PLTR,VUSA").split(",") if s.strip()]
 CAPITAL_PER_TICKER = float(os.getenv("CAPITAL_PER_TICKER", "3000"))
 TD_API_KEY = os.getenv("TWELVEDATA_API_KEY", "").strip()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
@@ -24,7 +25,10 @@ BASE_URL = "https://api.twelvedata.com/time_series"
 TD_MIN_SECONDS = float(os.getenv("TD_MIN_SECONDS_BETWEEN_CALLS", "11.0"))
 _last_td_call = 0.0
 
-# Optional existing capital state per ticker
+YF_SYMBOL_MAP = {
+    "VUSA": "VUSA.L",
+}
+
 def get_deployed(sym: str) -> float:
     return float(os.getenv(f"DEPLOYED_{sym}", "0"))
 
@@ -41,14 +45,8 @@ T3 = "#5b606b"
 BORDER = "#2b2f38"
 BORDER_SOFT = "#22252c"
 
-GREEN = "#2ecc71"
 GREEN2 = "#16a085"
-RED = "#ff6b6b"
-RED2 = "#e74c3c"
-AMBER = "#f0b43c"
 AMBER2 = "#d68910"
-BLUE = "#5dade2"
-BLUE2 = "#2e86de"
 TEAL = "#1abc9c"
 
 G_FG, G_BG = "#7ee2a8", "#102419"
@@ -92,7 +90,7 @@ def utc_now_str():
 # =========================
 # DATA FETCH
 # =========================
-def fetch_series(symbol: str, interval: str, outputsize: int) -> pd.DataFrame:
+def fetch_series_twelvedata(symbol: str, interval: str, outputsize: int) -> pd.DataFrame:
     td_throttle()
     params = {
         "symbol": symbol,
@@ -124,8 +122,80 @@ def fetch_series(symbol: str, interval: str, outputsize: int) -> pd.DataFrame:
     df["t"] = pd.to_datetime(df["t"], utc=True, errors="coerce")
     for col in ["o", "h", "l", "c"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df.dropna(subset=["t", "o", "h", "l", "c"]).sort_values("t").set_index("t")
+
+def _normalize_yf(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        raise RuntimeError("Yahoo Finance returned no data")
+
+    df = df.reset_index()
+
+    time_col = None
+    for c in df.columns:
+        if str(c).lower() in ["datetime", "date"]:
+            time_col = c
+            break
+    if time_col is None:
+        time_col = df.columns[0]
+
+    rename_map = {}
+    for c in df.columns:
+        lc = str(c).lower()
+        if lc == str(time_col).lower():
+            rename_map[c] = "t"
+        elif lc == "open":
+            rename_map[c] = "o"
+        elif lc == "high":
+            rename_map[c] = "h"
+        elif lc == "low":
+            rename_map[c] = "l"
+        elif lc == "close":
+            rename_map[c] = "c"
+
+    df = df.rename(columns=rename_map)
+
+    required = ["t", "o", "h", "l", "c"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise RuntimeError(f"Yahoo Finance missing columns: {missing}")
+
+    df["t"] = pd.to_datetime(df["t"], utc=True, errors="coerce")
+    for col in ["o", "h", "l", "c"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
     df = df.dropna(subset=["t", "o", "h", "l", "c"]).sort_values("t").set_index("t")
     return df
+
+def fetch_series_yahoo(symbol: str, interval: str, outputsize: int) -> pd.DataFrame:
+    yf_symbol = YF_SYMBOL_MAP.get(symbol.upper(), symbol)
+
+    if interval == "1day":
+        period = "18mo"
+        yf_interval = "1d"
+    elif interval == "1h":
+        period = "60d"
+        yf_interval = "60m"
+    else:
+        raise RuntimeError(f"Yahoo Finance interval not supported: {interval}")
+
+    df = yf.download(
+        yf_symbol,
+        period=period,
+        interval=yf_interval,
+        auto_adjust=False,
+        progress=False,
+        threads=False,
+    )
+
+    df = _normalize_yf(df)
+    if outputsize and len(df) > outputsize:
+        df = df.tail(outputsize)
+    return df
+
+def fetch_series(symbol: str, interval: str, outputsize: int) -> pd.DataFrame:
+    if symbol.upper() in YF_SYMBOL_MAP:
+        return fetch_series_yahoo(symbol, interval, outputsize)
+    return fetch_series_twelvedata(symbol, interval, outputsize)
 
 def resample_ohlc(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     return df.resample(rule).agg({"o": "first", "h": "max", "l": "min", "c": "last"}).dropna()
@@ -398,31 +468,17 @@ def rbox(ax, x, y, w, h, r=0.012, fc=CARD, ec=BORDER, lw=0.7, z=1):
 
 def txt(ax, x, y, s, sz=10, c=T1, ha="left", va="center", bold=False, z=5):
     ax.text(
-        x,
-        y,
-        str(s),
-        fontsize=sz,
-        color=c,
-        ha=ha,
-        va=va,
+        x, y, str(s),
+        fontsize=sz, color=c, ha=ha, va=va,
         fontweight="bold" if bold else "normal",
-        transform=ax.transAxes,
-        zorder=z,
-        clip_on=False,
+        transform=ax.transAxes, zorder=z, clip_on=False,
     )
 
 def badge(ax, x, y, text, bg, fg, sz=7.2, ha="center", z=7):
     ax.text(
-        x,
-        y,
-        str(text),
-        fontsize=sz,
-        color=fg,
-        ha=ha,
-        va="center",
-        fontweight="bold",
-        transform=ax.transAxes,
-        zorder=z,
+        x, y, str(text),
+        fontsize=sz, color=fg, ha=ha, va="center",
+        fontweight="bold", transform=ax.transAxes, zorder=z,
         bbox=dict(boxstyle="round,pad=0.26", facecolor=bg, edgecolor="none"),
         clip_on=False,
     )
@@ -465,7 +521,6 @@ def draw_ticker_card(ax, x, y, w, h, r):
     right = x + w - pad
     row = y + h - 0.022
 
-    # Header
     txt(ax, left, row, r["symbol"], sz=16, bold=True)
     badge(ax, right - 0.02, row + 0.001, stage_short(r["stage_name"]), stage_bg, stage_fg, sz=6.6, ha="right")
     row -= 0.035
@@ -474,7 +529,6 @@ def draw_ticker_card(ax, x, y, w, h, r):
     txt(ax, right, row, f"{r['pct_from_high']:.1f}% vs {r['high52w']:.2f}", sz=7.3, c=T2, ha="right")
     row -= 0.032
 
-    # Status badges
     if r["above_200ma"]:
         badge(ax, left + 0.030, row, "↑ Above 200MA", G_BG, G_FG, sz=6.9)
     else:
@@ -483,21 +537,18 @@ def draw_ticker_card(ax, x, y, w, h, r):
         badge(ax, left + 0.165, row, "⚠ Near panic", A_BG, A_FG, sz=6.9)
     row -= 0.028
 
-    # Action row
     action_text, action_fg, action_bg = action_now(r)
     rbox(ax, left, row - 0.040, w - 2 * pad, 0.042, r=0.010, fc=action_bg, ec="none", lw=0)
     txt(ax, x + w / 2, row - 0.019, action_text, sz=12.8, c=action_fg, ha="center", bold=True)
     row -= 0.060
 
-    # Signal boxes
     bw = (w - 2 * pad - 0.010) / 2
     metric_box(ax, left, row - 0.052, bw, 0.054, f"Core  £{int(r['core_total'])}", f"£{int(r['core_signal'])}", r["core_action"], value_color=T1)
     metric_box(ax, left + bw + 0.010, row - 0.052, bw, 0.054, f"Tactical  £{int(r['tactical_total'])}", f"£{int(r['tactical_signal'])}", f"{r['tactical_action']} · {r['buy_speed']}", value_color=T1)
     progress(ax, left + 0.010, row - 0.047, bw - 0.020, 0.006, (r["core_signal"] / max(1, r["core_total"])) * 100, GREEN2)
-    progress(ax, left + bw + 0.020, row - 0.047, bw - 0.020, 0.006, (r["tactical_signal"] / max(1, r["tactical_total"])) * 100, BLUE2)
+    progress(ax, left + bw + 0.020, row - 0.047, bw - 0.020, 0.006, (r["tactical_signal"] / max(1, r["tactical_total"])) * 100, B_FG)
     row -= 0.072
 
-    # Indicators
     small_w = (w - 2 * pad - 0.018) / 4
     indicator_y = row - 0.050
     indicators = [
@@ -571,7 +622,6 @@ def build_dashboard(results, vol_sym, vol_val, vol_rname, vol_mult, ts):
     usable_w = 1 - 2 * M
     cursor_y = 0.98
 
-    # Header
     txt(ax, M, cursor_y, "MARKET CYCLE DASHBOARD", sz=17, bold=True)
     txt(ax, 1 - M, cursor_y, ts, sz=8.8, c=T3, ha="right")
     cursor_y -= 0.028
@@ -592,7 +642,6 @@ def build_dashboard(results, vol_sym, vol_val, vol_rname, vol_mult, ts):
         txt(ax, sx, cursor_y - 0.041, value, sz=10.0, c=c, bold=True)
     cursor_y -= strip_h + 0.020
 
-    # Cycle bar
     txt(ax, M, cursor_y, "Market cycle position", sz=7.2, c=T3)
     cursor_y -= 0.016
 
@@ -606,7 +655,6 @@ def build_dashboard(results, vol_sym, vol_val, vol_rname, vol_mult, ts):
         txt(ax, sx + (seg_w - 0.001) / 2, cursor_y - seg_h / 2, name, sz=6.5, c=fg, ha="center", bold=active)
     cursor_y -= seg_h + 0.022
 
-    # Cards
     col_gap = 0.013
     card_w = (usable_w - (cols - 1) * col_gap) / cols
     if rows == 1:
@@ -624,7 +672,6 @@ def build_dashboard(results, vol_sym, vol_val, vol_rname, vol_mult, ts):
 
     cursor_y = current_y - rows * card_h - (rows - 1) * 0.025 - 0.050
 
-    # Footer summary only
     summary_h = 0.095
     rbox(ax, M, cursor_y - summary_h, usable_w, summary_h, r=0.012, fc=CARD, ec=BORDER, lw=0.8)
     txt(ax, M + 0.012, cursor_y - 0.018, "PORTFOLIO SUMMARY", sz=8.3, c=T3)
@@ -667,9 +714,7 @@ def send_dashboard(img_buf, caption):
             "caption": caption[:950],
             "disable_web_page_preview": True,
         },
-        files={
-            "document": ("market_cycle_dashboard.png", img_buf.getvalue(), "image/png"),
-        },
+        files={"document": ("market_cycle_dashboard.png", img_buf.getvalue(), "image/png")},
         timeout=90,
     )
     print("sendDocument status:", r.status_code)
@@ -682,11 +727,7 @@ def send_message(text):
     for chunk in chunks:
         r = requests.post(
             url,
-            data={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": chunk,
-                "disable_web_page_preview": True,
-            },
+            data={"chat_id": TELEGRAM_CHAT_ID, "text": chunk, "disable_web_page_preview": True},
             timeout=30,
         )
         print("sendMessage status:", r.status_code)
