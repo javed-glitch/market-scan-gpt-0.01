@@ -34,7 +34,7 @@ jobs:
 
       - name: Run cycle dashboard
         env:
-          SYMBOLS: TSLA,NVDA,PLTR
+          SYMBOLS: TSLA,NVDA,PLTR,VUSA
           CAPITAL_PER_TICKER: "3000"
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.CYCLE_TELEGRAM_BOT_TOKEN }}
