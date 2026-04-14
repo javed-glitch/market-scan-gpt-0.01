@@ -124,40 +124,63 @@ def fetch_series_twelvedata(symbol: str, interval: str, outputsize: int) -> pd.D
         df[col] = pd.to_numeric(df[col], errors="coerce")
     return df.dropna(subset=["t", "o", "h", "l", "c"]).sort_values("t").set_index("t")
 
+def _flatten_yf_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if isinstance(df.columns, pd.MultiIndex):
+        flat_cols = []
+        for col in df.columns:
+            parts = [str(x) for x in col if str(x) != "" and str(x).lower() != "nan"]
+            flat_cols.append("_".join(parts))
+        df.columns = flat_cols
+    else:
+        df.columns = [str(c) for c in df.columns]
+    return df
+
+def _find_matching_column(columns, targets):
+    lower_map = {str(c).lower(): c for c in columns}
+    for target in targets:
+        if target.lower() in lower_map:
+            return lower_map[target.lower()]
+    for c in columns:
+        c_low = str(c).lower()
+        for target in targets:
+            if c_low == target.lower():
+                return c
+            if c_low.startswith(target.lower() + "_"):
+                return c
+            if c_low.endswith("_" + target.lower()):
+                return c
+            if target.lower() in c_low:
+                return c
+    return None
+
 def _normalize_yf(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         raise RuntimeError("Yahoo Finance returned no data")
 
-    df = df.reset_index()
+    df = _flatten_yf_columns(df).reset_index()
 
-    time_col = None
-    for c in df.columns:
-        if str(c).lower() in ["datetime", "date"]:
-            time_col = c
-            break
-    if time_col is None:
-        time_col = df.columns[0]
+    cols = list(df.columns)
 
-    rename_map = {}
-    for c in df.columns:
-        lc = str(c).lower()
-        if lc == str(time_col).lower():
-            rename_map[c] = "t"
-        elif lc == "open":
-            rename_map[c] = "o"
-        elif lc == "high":
-            rename_map[c] = "h"
-        elif lc == "low":
-            rename_map[c] = "l"
-        elif lc == "close":
-            rename_map[c] = "c"
+    time_col = _find_matching_column(cols, ["Datetime", "Date", "index"])
+    open_col = _find_matching_column(cols, ["Open"])
+    high_col = _find_matching_column(cols, ["High"])
+    low_col = _find_matching_column(cols, ["Low"])
+    close_col = _find_matching_column(cols, ["Close", "Adj Close"])
 
-    df = df.rename(columns=rename_map)
+    if not all([time_col, open_col, high_col, low_col, close_col]):
+        raise RuntimeError(
+            f"Yahoo Finance missing columns after normalization. Got: {list(df.columns)}"
+        )
 
-    required = ["t", "o", "h", "l", "c"]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise RuntimeError(f"Yahoo Finance missing columns: {missing}")
+    df = df.rename(
+        columns={
+            time_col: "t",
+            open_col: "o",
+            high_col: "h",
+            low_col: "l",
+            close_col: "c",
+        }
+    )
 
     df["t"] = pd.to_datetime(df["t"], utc=True, errors="coerce")
     for col in ["o", "h", "l", "c"]:
@@ -185,6 +208,7 @@ def fetch_series_yahoo(symbol: str, interval: str, outputsize: int) -> pd.DataFr
         auto_adjust=False,
         progress=False,
         threads=False,
+        group_by="column",
     )
 
     df = _normalize_yf(df)
@@ -370,9 +394,6 @@ def action_now(r: dict):
         return "HOLD / WAIT", A_FG, A_BG
     return "WAIT", B_FG, B_BG
 
-def stage_short(stage_name: str):
-    return stage_name
-
 # =========================
 # ANALYSIS
 # =========================
@@ -453,16 +474,10 @@ def analyze_symbol(symbol: str, vol_mult: float):
 def rbox(ax, x, y, w, h, r=0.012, fc=CARD, ec=BORDER, lw=0.7, z=1):
     ax.add_patch(
         FancyBboxPatch(
-            (x, y),
-            w,
-            h,
+            (x, y), w, h,
             boxstyle=f"round,pad=0,rounding_size={r}",
-            linewidth=lw,
-            edgecolor=ec,
-            facecolor=fc,
-            transform=ax.transAxes,
-            zorder=z,
-            clip_on=False,
+            linewidth=lw, edgecolor=ec, facecolor=fc,
+            transform=ax.transAxes, zorder=z, clip_on=False,
         )
     )
 
@@ -522,7 +537,7 @@ def draw_ticker_card(ax, x, y, w, h, r):
     row = y + h - 0.022
 
     txt(ax, left, row, r["symbol"], sz=16, bold=True)
-    badge(ax, right - 0.02, row + 0.001, stage_short(r["stage_name"]), stage_bg, stage_fg, sz=6.6, ha="right")
+    badge(ax, right - 0.02, row + 0.001, r["stage_name"], stage_bg, stage_fg, sz=6.6, ha="right")
     row -= 0.035
 
     txt(ax, left, row, f"USD{r['close']:.2f}", sz=15, bold=True)
