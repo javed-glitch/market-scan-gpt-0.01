@@ -1,5 +1,4 @@
 name: Market Cycle Dashboard -> Telegram
-
 on:
   workflow_dispatch:
   schedule:
@@ -9,29 +8,24 @@ on:
     - cron: "0 18 * * 1-5"
     # Pre-close: 3:45 PM ET / 20:45 UTC
     - cron: "45 20 * * 1-5"
-
 jobs:
   cycle_scan:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       MPLBACKEND: Agg
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests pandas numpy matplotlib yfinance
-
       - name: Run cycle dashboard
         env:
           SYMBOLS: TSLA,NVDA,PLTR,VUSA
