@@ -105,6 +105,11 @@ def fetch_series_twelvedata(symbol, interval, outputsize):
             raise RuntimeError(f"TwelveData: {data.get('message')}")
     values = data.get("values")
     if not values: raise RuntimeError(f"No values for {symbol} ({interval})")
+    # DEBUG: log raw keys from first value to confirm volume field name
+    if values:
+        raw_keys = list(values[0].keys())
+        print(f"[DEBUG] {symbol} ({interval}) raw keys: {raw_keys}")
+        print(f"[DEBUG] sample value: {values[0]}")
     df = pd.DataFrame(values).rename(
         columns={"datetime":"t","open":"o","high":"h","low":"l","close":"c","volume":"v"})
     df["t"] = pd.to_datetime(df["t"], utc=True, errors="coerce")
@@ -315,6 +320,7 @@ def compute_order_blocks(df_4h, df_1d, close, n=4):
             df["v"] = 1.0
 
         df["v"] = pd.to_numeric(df["v"], errors="coerce").fillna(0)
+        print(f"[DEBUG] OB {tf_label} volume stats — mean: {df['v'].mean():.0f}, max: {df['v'].max():.0f}, zeros: {(df['v']==0).sum()}")
         avg_vol  = df["v"].rolling(20, min_periods=10).mean()
 
         for i in range(2, len(df)-2):
@@ -564,6 +570,9 @@ def analyze_symbol(symbol, vol_mult):
         "currency":     get_currency(symbol),
         "csym":         csym(symbol),
     }
+    print(f"[DEBUG] {symbol} order_blocks found: {len(order_blocks)}")
+    for b in order_blocks:
+        print(f"[DEBUG]   {b['type']} {b['lo']:.2f}-{b['hi']:.2f} {b['vol_mult']:.1f}x {b['sessions_ago']}d")
     result["override"] = compute_override(result, order_blocks)
     return result
 
