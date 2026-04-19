@@ -160,6 +160,13 @@ def resample_ohlc(df, rule):
     return df.resample(rule).agg(
         {"o":"first","h":"max","l":"min","c":"last"}).dropna()
 
+def resample_ohlcv(df, rule):
+    """Resample including volume sum — required for order block detection."""
+    cols = {"o":"first","h":"max","l":"min","c":"last"}
+    if "v" in df.columns:
+        cols["v"] = "sum"
+    return df.resample(rule).agg(cols).dropna()
+
 # =========================
 # INDICATORS
 # =========================
@@ -312,7 +319,7 @@ def compute_order_blocks(df_4h, df_1d, close, n=4):
             if avg <= 0:
                 continue
             mult   = vol / avg
-            if mult < 2.5:
+            if mult < 2.0:
                 continue
 
             candle = df.iloc[i]
@@ -336,6 +343,10 @@ def compute_order_blocks(df_4h, df_1d, close, n=4):
 
             # sessions ago (approximate using index position)
             sessions_ago = len(df) - 1 - i
+
+            # skip stale blocks — only keep last 30 sessions
+            if sessions_ago > 30:
+                continue
 
             blocks.append({
                 "type":         ob_type,
@@ -506,12 +517,20 @@ def analyze_symbol(symbol, vol_mult):
     speed   = buy_speed(pct_h)
     ca,cs,ta,ts,ct,tt = determine_actions(sn,si,above,speed,vol_mult)
 
-    # merge volume from 1H into 4H
-    df_4h_v = resample_ohlc(
-        df_1h.assign(v=df_1h.get("v", pd.Series(1.0, index=df_1h.index))),
-        "4h")
-    # fetch daily with volume
-    order_blocks = compute_order_blocks(df_4h_v, df_1d, close, n=4)
+    # build 4H dataframe with volume properly summed from 1H candles
+    df_1h_v = df_1h.copy()
+    if "v" not in df_1h_v.columns:
+        df_1h_v["v"] = 1.0
+    df_1h_v["v"] = pd.to_numeric(df_1h_v["v"], errors="coerce").fillna(0)
+    df_4h_v = resample_ohlcv(df_1h_v, "4h")
+
+    # build daily dataframe with volume
+    df_1d_v = df_1d.copy()
+    if "v" not in df_1d_v.columns:
+        df_1d_v["v"] = 1.0
+    df_1d_v["v"] = pd.to_numeric(df_1d_v["v"], errors="coerce").fillna(0)
+
+    order_blocks = compute_order_blocks(df_4h_v, df_1d_v, close, n=4)
 
     deployed = get_deployed(symbol)
     result = {
