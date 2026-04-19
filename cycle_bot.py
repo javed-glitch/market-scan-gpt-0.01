@@ -106,7 +106,7 @@ def fetch_series_twelvedata(symbol, interval, outputsize):
     values = data.get("values")
     if not values: raise RuntimeError(f"No values for {symbol} ({interval})")
     df = pd.DataFrame(values).rename(
-        columns={"datetime":"t","open":"o","high":"h","low":"l","close":"c"})
+        columns={"datetime":"t","open":"o","high":"h","low":"l","close":"c","volume":"v"})
     df["t"] = pd.to_datetime(df["t"], utc=True, errors="coerce")
     for col in ["o","h","l","c"]: df[col] = pd.to_numeric(df[col], errors="coerce")
     return df.dropna(subset=["t","o","h","l","c"]).sort_values("t").set_index("t")
@@ -138,6 +138,10 @@ def _normalize_yf(df):
     if not all([tc,oc,hc,lc,cc]):
         raise RuntimeError(f"Yahoo Finance missing columns: {cols}")
     df = df.rename(columns={tc:"t",oc:"o",hc:"h",lc:"l",cc:"c"})
+    # rename volume column to v if present
+    vc = _find_col(list(df.columns), ["Volume"])
+    if vc and vc not in ("t","o","h","l","c"):
+        df = df.rename(columns={vc:"v"})
     df["t"] = pd.to_datetime(df["t"], utc=True, errors="coerce")
     for col in ["o","h","l","c"]: df[col] = pd.to_numeric(df[col], errors="coerce")
     return df.dropna(subset=["t","o","h","l","c"]).sort_values("t").set_index("t")
