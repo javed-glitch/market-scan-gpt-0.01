@@ -28,7 +28,7 @@ jobs:
           pip install requests pandas numpy matplotlib yfinance
       - name: Run cycle dashboard
         env:
-          SYMBOLS: TSLA,NVDA,PLTR,VUSA
+          SYMBOLS: TSLA,NVDA,PLTR,VUSA, EQQQ
           CAPITAL_PER_TICKER: "3000"
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.CYCLE_TELEGRAM_BOT_TOKEN }}
