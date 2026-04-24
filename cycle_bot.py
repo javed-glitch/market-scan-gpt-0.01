@@ -28,9 +28,10 @@ MAX_CARDS_PER_PAGE = CARDS_PER_ROW * ROWS_PER_PAGE
 
 _last_td_call = 0.0
 
-YF_SYMBOL_MAP = {"VUSA": "VUSA.L"}
+YF_SYMBOL_MAP = {"VUSA": "VUSA.L", "EQQQ": "EQQQ.L"}
 
-CURRENCY_MAP = {"VUSA": "GBP", "VUSA.L": "GBP"}
+CURRENCY_MAP = {"VUSA": "GBP", "VUSA.L": "GBP",
+                "EQQQ": "GBP", "EQQQ.L": "GBP"}
 
 def get_currency(sym): return CURRENCY_MAP.get(sym.upper(), "USD")
 def csym(sym): return "\u00a3" if get_currency(sym) == "GBP" else "USD "
