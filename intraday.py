@@ -232,8 +232,8 @@ def send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, r
         if PRICE_CONTEXT_KEY:
             headers["x-price-context-key"] = PRICE_CONTEXT_KEY
 
-        url = f"{QUANT_SERVER_URL.rstrip('/')}/price-context"
-        r = requests.post(url, json=payload, headers=headers, timeout=15)
+        # QUANT_SERVER_URL is the full endpoint (e.g. https://.../price-context) — no path appended here
+        r = requests.post(QUANT_SERVER_URL, json=payload, headers=headers, timeout=15)
         if r.status_code != 200:
             print(f"[price-context] {symbol}: HTTP {r.status_code}: {r.text[:200]}")
     except Exception as e:
