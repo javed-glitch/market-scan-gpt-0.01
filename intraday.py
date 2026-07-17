@@ -28,6 +28,11 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 # Charts are sent only if Bias is Buy/Sell AND confidence >= this threshold
 ACTION_CONFIDENCE_MIN = int(os.getenv("ACTION_CONFIDENCE_MIN", "70"))
 
+# Optional: also forward raw 4H structure to quant-server for Claude to use.
+# Additive only — if unset, behaves exactly as before (no GPT/Telegram change).
+QUANT_SERVER_URL = os.getenv("QUANT_SERVER_URL", "").strip()
+PRICE_CONTEXT_KEY = os.getenv("PRICE_CONTEXT_KEY", "").strip()
+
 BASE_URL = "https://api.twelvedata.com/time_series"
 
 # 1H lookback for building 4H
@@ -186,6 +191,53 @@ def tg_send_photo(photo_path: str, caption: str):
         r = requests.post(url, data=data, files=files, timeout=60)
         if r.status_code != 200:
             raise RuntimeError(f"Telegram sendPhoto error {r.status_code}: {r.text}")
+
+
+# =========================
+# QUANT SERVER (PRICE CONTEXT — additive, non-fatal)
+# =========================
+def send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, res,
+                        high_52w, pct_from, lvl_20, lvl_30, lvl_40, vol_regime, vol_mult):
+    """
+    Forwards raw 4H structure (not GPT's interpretation) to quant-server so Claude
+    can use it as context. Best-effort only — never raises, never touches
+    results/actionable/failures, so it can't affect the existing GPT/Telegram flow.
+    """
+    if not QUANT_SERVER_URL:
+        return
+    try:
+        payload = {
+            "symbol": symbol,
+            "close": round(float(close), 4),
+            "rsi": round(float(rsi_val), 2),
+            "macd": {
+                "macd": round(float(macd_line.iloc[-1]), 6),
+                "signal": round(float(sig_line.iloc[-1]), 6),
+                "hist": round(float(hist.iloc[-1]), 6),
+            },
+            "support": round(float(sup), 4),
+            "resistance": round(float(res), 4),
+            "high_52w": round(float(high_52w), 4),
+            "pct_from_52w": round(float(pct_from), 2),
+            "pullback_levels": {
+                "20": round(float(lvl_20), 4),
+                "30": round(float(lvl_30), 4),
+                "40": round(float(lvl_40), 4),
+            },
+            "vol_regime": vol_regime,
+            "vol_mult": vol_mult,
+            "timestamp": utc_now().isoformat(),
+        }
+        headers = {"Content-Type": "application/json"}
+        if PRICE_CONTEXT_KEY:
+            headers["x-price-context-key"] = PRICE_CONTEXT_KEY
+
+        url = f"{QUANT_SERVER_URL.rstrip('/')}/price-context"
+        r = requests.post(url, json=payload, headers=headers, timeout=15)
+        if r.status_code != 200:
+            print(f"[price-context] {symbol}: HTTP {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        print(f"[price-context] {symbol}: {repr(e)}")
 
 
 # =========================
@@ -594,6 +646,10 @@ def main():
                 "investor_action": action,
                 "size_hint": size_hint
             })
+
+            # Forward raw structure to quant-server (additive, best-effort — see function docstring)
+            send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, res,
+                                high_52w, pct_from, lvl_20, lvl_30, lvl_40, regime, mult)
 
             # "Entry advised" = Buy/Sell bias AND confidence >= ACTION_CONFIDENCE_MIN
             if (trading_bias in ("Buy", "Sell")) and (conf >= ACTION_CONFIDENCE_MIN):
