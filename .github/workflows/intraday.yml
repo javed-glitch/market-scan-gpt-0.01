@@ -36,6 +36,9 @@ jobs:
           OPENAI_MODEL: gpt-4o-mini
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Forwards raw 4H structure to quant-server (additive — unset = no-op)
+          QUANT_SERVER_URL: ${{ secrets.QUANT_SERVER_URL }}
+          PRICE_CONTEXT_KEY: ${{ secrets.PRICE_CONTEXT_KEY }}
           # Order-Setter params (tweak anytime)
           BB_PERIOD: "20"
           BB_STD: "1.5"
