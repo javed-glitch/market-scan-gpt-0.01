@@ -2,12 +2,14 @@ name: Market Cycle Dashboard -> Telegram
 on:
   workflow_dispatch:
   schedule:
-    # Market open: 9:30 AM ET / 14:30 UTC
-    - cron: "30 14 * * 1-5"
-    # Mid-session: 1:00 PM ET / 18:00 UTC
-    - cron: "0 18 * * 1-5"
-    # Pre-close: 3:45 PM ET / 20:45 UTC
-    - cron: "45 20 * * 1-5"
+    # Offset +12min from intraday.yml (14:30/18:00/20:45) to avoid Twelve Data
+    # rate-limit collisions — both workflows share TWELVEDATA_API_KEY.
+    # Market open: 9:30 AM ET / 14:30 UTC (+12min offset)
+    - cron: "42 14 * * 1-5"
+    # Mid-session: 1:00 PM ET / 18:00 UTC (+12min offset)
+    - cron: "12 18 * * 1-5"
+    # Pre-close: 3:45 PM ET / 20:45 UTC (+12min offset)
+    - cron: "57 20 * * 1-5"
 jobs:
   cycle_scan:
     runs-on: ubuntu-latest
