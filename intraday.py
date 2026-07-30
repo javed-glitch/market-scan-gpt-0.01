@@ -168,16 +168,47 @@ def sizing_hint_text(bias: str, conf: int, vol_mult: float) -> str:
 # =========================
 # TELEGRAM
 # =========================
+TG_MAX_CHARS = 3800  # stay under Telegram's 4096 hard limit
+
+def _chunk_message(text: str, max_chars: int = TG_MAX_CHARS):
+    """Split on line boundaries so a symbol's block never gets cut mid-way.
+    Falls back to a hard split only if a single line itself exceeds max_chars."""
+    if len(text) <= max_chars:
+        return [text]
+
+    chunks, cur = [], ""
+    for line in text.split("\n"):
+        candidate = f"{cur}\n{line}" if cur else line
+        if len(candidate) > max_chars and cur:
+            chunks.append(cur)
+            cur = line
+        else:
+            cur = candidate
+    if cur:
+        chunks.append(cur)
+
+    final = []
+    for c in chunks:
+        if len(c) <= max_chars:
+            final.append(c)
+        else:
+            final.extend(c[i:i + max_chars] for i in range(0, len(c), max_chars))
+    return final
+
 def tg_send_message(text: str):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "disable_web_page_preview": True
-    }
-    r = requests.post(url, data=payload, timeout=30)
-    if r.status_code != 200:
-        raise RuntimeError(f"Telegram sendMessage error {r.status_code}: {r.text}")
+    chunks = _chunk_message(text)
+    for i, chunk in enumerate(chunks):
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": chunk,
+            "disable_web_page_preview": True
+        }
+        r = requests.post(url, data=payload, timeout=30)
+        if r.status_code != 200:
+            raise RuntimeError(f"Telegram sendMessage error {r.status_code}: {r.text}")
+        if i < len(chunks) - 1:
+            time.sleep(SLEEP_BETWEEN_OTHER_CALLS)
 
 def tg_send_photo(photo_path: str, caption: str):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
