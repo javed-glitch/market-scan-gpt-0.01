@@ -408,6 +408,36 @@ def volume_readable(current: float, avg: float, ratio: float, period: int = 20) 
     tag = "elevated" if ratio >= 1.5 else "below average" if ratio < 0.7 else "normal"
     return f"{current:,.0f} vs {period}-bar avg {avg:,.0f} ({ratio:.2f}x, {tag})"
 
+def volume_direction(close: pd.Series, vol: pd.Series, period: int = 20) -> tuple[float, float]:
+    """
+    Twelve Data's OHLCV feed has no true buy/sell volume split (that needs
+    L2/tick data, which we don't have). Standard proxy when only OHLCV is
+    available: classify each of the trailing `period` bars as up/down by
+    close vs prior close, and sum volume per side (same logic as OBV).
+    Returns (up_vol, down_vol).
+    """
+    c = close.tail(period + 1)
+    v = vol.tail(period + 1)
+    delta = c.diff().iloc[1:]
+    v_aligned = v.iloc[1:]
+    up_vol = float(v_aligned[delta > 0].sum())
+    down_vol = float(v_aligned[delta < 0].sum())
+    return up_vol, down_vol
+
+def volume_direction_readable(up_vol: float, down_vol: float) -> str:
+    if up_vol == 0 and down_vol == 0:
+        return "No directional volume data"
+    if down_vol == 0:
+        return "All up-volume (buying pressure)"
+    if up_vol == 0:
+        return "All down-volume (selling pressure)"
+    ratio = up_vol / down_vol
+    if ratio >= 1.15:
+        return f"Up-vol {ratio:.1f}x Down-vol (buying pressure)"
+    if ratio <= 1 / 1.15:
+        return f"Down-vol {(1 / ratio):.1f}x Up-vol (selling pressure)"
+    return f"Up-vol/Down-vol balanced ({ratio:.2f}x)"
+
 
 # =========================
 # 52W HIGH
@@ -558,7 +588,7 @@ def gpt_analyze(symbol: str, tf: str, close: float, rsi_val: float, macd_text: s
                sup: float, res: float,
                high_52w: float, pct_from_52w: float, lvl_20: float, lvl_30: float, lvl_40: float,
                vol_sym: str, vol_val: float, regime: str, mult: float,
-               volume_text: str) -> dict:
+               volume_text: str, volume_dir_text: str) -> dict:
     prompt = f"""
 You are a trading assistant for a long-only swing trader. Be concise and structured.
 
@@ -568,6 +598,7 @@ Close: {close:.2f}
 RSI(14): {rsi_val:.1f}
 MACD: {macd_text}
 Volume (4H bar vs 20-bar avg): {volume_text}
+Volume direction (last 20 bars, up-bar vs down-bar volume split): {volume_dir_text}
 Support: {sup:.2f}
 Resistance: {res:.2f}
 
@@ -599,6 +630,11 @@ Rules:
 - Weigh volume as a confirming/disconfirming factor: elevated volume backing
   the RSI/MACD signal strengthens conviction; a move on below-average volume
   is weaker conviction and should be reflected in confidence and "why".
+- Use the volume direction split to judge which side is in control: elevated
+  volume that aligns with the signal (e.g. Sell bias + selling pressure)
+  reinforces conviction; elevated volume against the signal (e.g. Sell bias
+  but buying pressure dominant) should lower confidence and be called out
+  in "why".
 - Keep text fields short, one sentence max where possible.
 """
     resp = client.chat.completions.create(
@@ -677,6 +713,9 @@ def main():
             vol_current, vol_avg20, vol_ratio = volume_ratio(df_4h["v"], 20)
             volume_text = volume_readable(vol_current, vol_avg20, vol_ratio, 20)
 
+            up_vol, down_vol = volume_direction(df_4h["c"], df_4h["v"], 20)
+            volume_dir_text = volume_direction_readable(up_vol, down_vol)
+
             df_1d = fetch_1d(symbol)
             high_52w, pct_from, lvl_20, lvl_30, lvl_40 = compute_52w(df_1d, close)
 
@@ -684,7 +723,7 @@ def main():
             g = gpt_analyze(symbol, tf, close, rsi_val, macd_text, sup, res,
                             high_52w, pct_from, lvl_20, lvl_30, lvl_40,
                             vol_sym, vol_val if np.isfinite(vol_val) else 0.0, regime, mult,
-                            volume_text)
+                            volume_text, volume_dir_text)
 
             trading_bias = g.get("bias", "Neutral")
             conf = int(g.get("confidence", 0))
@@ -699,6 +738,7 @@ def main():
                 "rsi": rsi_val,
                 "macd_text": macd_text,
                 "volume_text": volume_text,
+                "volume_dir_text": volume_dir_text,
                 "sup": sup,
                 "res": res,
                 "high_52w": high_52w,
@@ -807,6 +847,7 @@ def main():
             f"RSI: {r['rsi']:.1f}\n"
             f"MACD: {r['macd_text']}\n"
             f"Volume: {r['volume_text']}\n"
+            f"Volume Bias: {r['volume_dir_text']}\n"
             f"Support: {r['sup']:.2f}\n"
             f"Resistance: {r['res']:.2f}\n\n"
             f"52W High: {r['high_52w']:.2f}\n"
