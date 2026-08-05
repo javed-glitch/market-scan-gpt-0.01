@@ -28,13 +28,6 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 # Charts are sent only if Bias is Buy/Sell AND confidence >= this threshold
 ACTION_CONFIDENCE_MIN = int(os.getenv("ACTION_CONFIDENCE_MIN", "70"))
 
-# RSI/MACD confluence — an independent, deterministic route to TRIM that
-# doesn't depend on GPT's confidence crossing 80%, matching how quant-server's
-# own Pine Script signal generator works (indicator alignment, not a single
-# subjective probability). Was already defined in the workflow env but never
-# wired up until now.
-RSI_SELL_MIN = float(os.getenv("RSI_SELL_MIN", "60"))
-
 # Optional: also forward raw 4H structure to quant-server for Claude to use.
 # Additive only — if unset, behaves exactly as before (no GPT/Telegram change).
 QUANT_SERVER_URL = os.getenv("QUANT_SERVER_URL", "").strip()
@@ -107,29 +100,19 @@ def clamp(x, lo, hi):
 # =========================
 # INVESTOR ACTION (confidence nuance)
 # =========================
-def technical_sell_confirm(rsi_val, macd_line, sig_line, hist) -> bool:
-    """
-    Deterministic RSI+MACD alignment check — mirrors the dual MACD check
-    (histogram sign + line-vs-signal position) already used in quant-server's
-    Pine Script bear-score confluence, applied here as an independent
-    confirmation path rather than a fixed indicator score threshold.
-    """
-    if None in (rsi_val, macd_line, sig_line, hist):
-        return False
-    return rsi_val >= RSI_SELL_MIN and hist < 0 and macd_line < sig_line
-
-
-def investor_action(trading_bias: str, confidence: int,
-                     rsi_val=None, macd_line=None, sig_line=None, hist=None) -> str:
+def investor_action(trading_bias: str, confidence: int) -> str:
     """
     Long-only swing trader framing:
     - BUY = potential add/accumulate zone
     - SELL = potential trim/take-profits zone (not short)
     - NEUTRAL = hold/wait
 
-    TRIM has two independent paths to fire: GPT confidence >=80%, OR RSI/MACD
-    technical confluence — so a genuinely overbought+bearish-MACD setup isn't
-    silently missed just because GPT's own confidence number stayed under 80.
+    SELL has no confidence gate, no RSI/MACD numeric threshold — matches
+    quant-server's own /trim command, which hands Claude the full technical
+    context and trusts its judgement directly rather than filtering through
+    a fixed rule. GPT's bias here already reasons over RSI/MACD/support-
+    resistance in the prompt; a second numeric gate on top just second-
+    guesses that reasoning without adding real signal.
     """
     b = (trading_bias or "Neutral").strip().lower()
     c = int(confidence or 0)
@@ -138,11 +121,7 @@ def investor_action(trading_bias: str, confidence: int,
         return "ADD / ACCUMULATE" if c >= 70 else "WATCH / EARLY SETUP"
 
     if b == "sell":
-        if c >= 80 or technical_sell_confirm(rsi_val, macd_line, sig_line, hist):
-            return "TRIM / TAKE PROFITS"
-        if c >= 70:
-            return "HOLD / WAIT (extended)"
-        return "IGNORE / NO ACTION"
+        return "TRIM / TAKE PROFITS"
 
     return "HOLD / WAIT"
 
@@ -678,13 +657,7 @@ def main():
 
             trading_bias = g.get("bias", "Neutral")
             conf = int(g.get("confidence", 0))
-            action = investor_action(trading_bias, conf, rsi_val,
-                                      float(macd_line.iloc[-1]), float(sig_line.iloc[-1]), float(hist.iloc[-1]))
-
-            # Flag when it was the technical path (not GPT confidence) that
-            # triggered TRIM, so the alert is honest about why it fired.
-            if action == "TRIM / TAKE PROFITS" and conf < 80:
-                action += " (RSI/MACD confirmed)"
+            action = investor_action(trading_bias, conf)
 
             size_hint = sizing_hint_text(trading_bias, conf, mult)
 
@@ -712,12 +685,10 @@ def main():
             send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, res,
                                 high_52w, pct_from, lvl_20, lvl_30, lvl_40, regime, mult)
 
-            # "Entry advised" = Buy/Sell bias AND confidence >= ACTION_CONFIDENCE_MIN,
-            # OR a technically-confirmed TRIM regardless of GPT's confidence number
-            # (see investor_action) — otherwise a low-confidence-but-technically-
-            # confirmed trim would silently get no chart/detail despite firing.
-            if ((trading_bias in ("Buy", "Sell")) and (conf >= ACTION_CONFIDENCE_MIN)) \
-               or action.startswith("TRIM"):
+            # "Entry advised" = Buy with confidence >= threshold, OR any Sell
+            # bias at all — trim isn't confidence-gated, matching /trim's
+            # "trust the model, no secondary filter" pattern on quant-server.
+            if (trading_bias == "Buy" and conf >= ACTION_CONFIDENCE_MIN) or trading_bias == "Sell":
                 actionable.append(symbol)
 
         except Exception as e:
@@ -774,17 +745,17 @@ def main():
 
     tg_send_message("\n".join(lines))
 
-    # CHART + DETAIL only for actionable entries — including a technically-
-    # confirmed TRIM even if GPT's own confidence stayed under the threshold.
+    # CHART + DETAIL only for actionable entries — Buy still needs
+    # ACTION_CONFIDENCE_MIN, Sell (trim) always gets a chart regardless of
+    # confidence, matching /trim's unfiltered "trust the model" pattern.
     for r in results:
         g = r["g"]
         trading_bias = r["trading_bias"]
         conf = r["confidence"]
-        is_tech_trim = r["investor_action"].startswith("TRIM")
 
         if trading_bias not in ("Buy", "Sell"):
             continue
-        if conf < ACTION_CONFIDENCE_MIN and not is_tech_trim:
+        if trading_bias == "Buy" and conf < ACTION_CONFIDENCE_MIN:
             continue
 
         symbol = r["symbol"]
@@ -827,4 +798,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
