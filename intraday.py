@@ -329,7 +329,7 @@ def fetch_series(symbol: str, interval: str, outputsize: int) -> pd.DataFrame:
         "volume": "v",
     })
     df["t"] = pd.to_datetime(df["t"], utc=True, errors="coerce")
-    for col in ["o", "h", "l", "c"]:
+    for col in ["o", "h", "l", "c", "v"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     df = df.dropna(subset=["t", "o", "h", "l", "c"]).sort_values("t").set_index("t")
@@ -345,12 +345,15 @@ def fetch_1d(symbol: str) -> pd.DataFrame:
 
 def resample_ohlc(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     # Use lowercase 'h' to avoid pandas FutureWarning
-    return df.resample(rule).agg({
+    out = df.resample(rule).agg({
         "o": "first",
         "h": "max",
         "l": "min",
         "c": "last",
-    }).dropna()
+        "v": "sum",
+    }).dropna(subset=["o", "h", "l", "c"])
+    out["v"] = out["v"].fillna(0)
+    return out
 
 
 # =========================
@@ -386,6 +389,24 @@ def macd_readable(macd_line: pd.Series, sig_line: pd.Series, hist: pd.Series) ->
     direction = "Bullish" if m0 > s0 else "Bearish" if m0 < s0 else "Neutral"
     slope = "rising" if h0 > h1 else "falling" if h0 < h1 else "flat"
     return f"{direction} (histogram {slope})"
+
+def volume_ratio(vol: pd.Series, period: int = 20) -> tuple[float, float, float]:
+    """
+    Current bar volume vs its trailing N-bar average (industry-standard
+    convention for volume confirmation, e.g. "volume vs 20-bar avg").
+    Returns (current_vol, avg_vol, ratio). Ratio is NaN if avg_vol is 0/NaN
+    (e.g. too few bars, or a feed that doesn't report volume for this symbol).
+    """
+    current = float(vol.iloc[-1])
+    avg = float(vol.tail(period).mean())
+    ratio = (current / avg) if avg > 0 else float("nan")
+    return current, avg, ratio
+
+def volume_readable(current: float, avg: float, ratio: float, period: int = 20) -> str:
+    if not np.isfinite(ratio):
+        return "No volume data"
+    tag = "elevated" if ratio >= 1.5 else "below average" if ratio < 0.7 else "normal"
+    return f"{current:,.0f} vs {period}-bar avg {avg:,.0f} ({ratio:.2f}x, {tag})"
 
 
 # =========================
@@ -536,7 +557,8 @@ def _safe_extract_json(text: str) -> dict:
 def gpt_analyze(symbol: str, tf: str, close: float, rsi_val: float, macd_text: str,
                sup: float, res: float,
                high_52w: float, pct_from_52w: float, lvl_20: float, lvl_30: float, lvl_40: float,
-               vol_sym: str, vol_val: float, regime: str, mult: float) -> dict:
+               vol_sym: str, vol_val: float, regime: str, mult: float,
+               volume_text: str) -> dict:
     prompt = f"""
 You are a trading assistant for a long-only swing trader. Be concise and structured.
 
@@ -545,6 +567,7 @@ Timeframe: {tf}
 Close: {close:.2f}
 RSI(14): {rsi_val:.1f}
 MACD: {macd_text}
+Volume (4H bar vs 20-bar avg): {volume_text}
 Support: {sup:.2f}
 Resistance: {res:.2f}
 
@@ -573,6 +596,9 @@ Return JSON with exactly these keys:
 
 Rules:
 - "Sell" means trim/take-profits (NOT short).
+- Weigh volume as a confirming/disconfirming factor: elevated volume backing
+  the RSI/MACD signal strengthens conviction; a move on below-average volume
+  is weaker conviction and should be reflected in confidence and "why".
 - Keep text fields short, one sentence max where possible.
 """
     resp = client.chat.completions.create(
@@ -647,13 +673,17 @@ def main():
 
             sup, res = support_resistance(df_4h)
 
+            vol_current, vol_avg20, vol_ratio = volume_ratio(df_4h["v"], 20)
+            volume_text = volume_readable(vol_current, vol_avg20, vol_ratio, 20)
+
             df_1d = fetch_1d(symbol)
             high_52w, pct_from, lvl_20, lvl_30, lvl_40 = compute_52w(df_1d, close)
 
             time.sleep(SLEEP_BETWEEN_OTHER_CALLS)
             g = gpt_analyze(symbol, tf, close, rsi_val, macd_text, sup, res,
                             high_52w, pct_from, lvl_20, lvl_30, lvl_40,
-                            vol_sym, vol_val if np.isfinite(vol_val) else 0.0, regime, mult)
+                            vol_sym, vol_val if np.isfinite(vol_val) else 0.0, regime, mult,
+                            volume_text)
 
             trading_bias = g.get("bias", "Neutral")
             conf = int(g.get("confidence", 0))
@@ -667,6 +697,7 @@ def main():
                 "close": close,
                 "rsi": rsi_val,
                 "macd_text": macd_text,
+                "volume_text": volume_text,
                 "sup": sup,
                 "res": res,
                 "high_52w": high_52w,
@@ -768,6 +799,7 @@ def main():
             f"Close: {r['close']:.2f}\n"
             f"RSI: {r['rsi']:.1f}\n"
             f"MACD: {r['macd_text']}\n"
+            f"Volume: {r['volume_text']}\n"
             f"Support: {r['sup']:.2f}\n"
             f"Resistance: {r['res']:.2f}\n\n"
             f"52W High: {r['high_52w']:.2f}\n"
