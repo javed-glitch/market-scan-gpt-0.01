@@ -654,7 +654,8 @@ def main():
         regime, mult = ("UNKNOWN", 1.0)
 
     results = []
-    actionable = []
+    actionable_buy = []
+    actionable_trim = []
     failures = []
 
     for symbol in SYMBOLS:
@@ -719,8 +720,10 @@ def main():
             # "Entry advised" = Buy with confidence >= threshold, OR any Sell
             # bias at all — trim isn't confidence-gated, matching /trim's
             # "trust the model, no secondary filter" pattern on quant-server.
-            if (trading_bias == "Buy" and conf >= ACTION_CONFIDENCE_MIN) or trading_bias == "Sell":
-                actionable.append(symbol)
+            if trading_bias == "Buy" and conf >= ACTION_CONFIDENCE_MIN:
+                actionable_buy.append(symbol)
+            elif trading_bias == "Sell":
+                actionable_trim.append(symbol)
 
         except Exception as e:
             failures.append(f"{symbol}: {repr(e)}")
@@ -766,9 +769,13 @@ def main():
     else:
         lines.append("No results produced.\n")
 
-    if actionable:
+    if actionable_buy or actionable_trim:
         lines.append("-" * 50)
-        lines.append("📌 Actionable entries detected for: " + ", ".join(actionable))
+        lines.append("📌 Actionable entries detected:")
+        if actionable_buy:
+            lines.append("🟢 Buy/Add: " + ", ".join(actionable_buy))
+        if actionable_trim:
+            lines.append("🔴 Trim: " + ", ".join(actionable_trim))
 
     if vol_err:
         lines.append("-" * 50)
