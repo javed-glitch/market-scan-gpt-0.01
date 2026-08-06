@@ -13,15 +13,13 @@ jobs:
   intraday:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout intraday branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: intraday
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Install dependencies
@@ -51,7 +49,7 @@ jobs:
           python intraday.py
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: intraday-scan-logs
           path: logs/
