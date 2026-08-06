@@ -438,6 +438,25 @@ def volume_direction_readable(up_vol: float, down_vol: float) -> str:
         return f"Down-vol {(1 / ratio):.1f}x Up-vol (selling pressure)"
     return f"Up-vol/Down-vol balanced ({ratio:.2f}x)"
 
+def volume_direction_simple(up_vol: float, down_vol: float) -> str:
+    """
+    Plain, Telegram-facing version of volume_direction_readable() — GPT still
+    gets the detailed ratio text for its own reasoning; this is just the
+    human-readable verdict shown in the caption.
+    """
+    if up_vol == 0 and down_vol == 0:
+        return "❔ No volume data"
+    if down_vol == 0:
+        return "📈 Buyers in control"
+    if up_vol == 0:
+        return "📉 Sellers in control"
+    ratio = up_vol / down_vol
+    if ratio >= 1.15:
+        return "📈 Buyers in control"
+    if ratio <= 1 / 1.15:
+        return "📉 Sellers in control"
+    return "⚖️ Neither side in control"
+
 
 # =========================
 # 52W HIGH
@@ -635,6 +654,13 @@ Rules:
   reinforces conviction; elevated volume against the signal (e.g. Sell bias
   but buying pressure dominant) should lower confidence and be called out
   in "why".
+- "setup_tag" must lead with a short plain-English phrase a non-trader would
+  understand (2-5 words, no TA jargon), then the technical term in
+  parentheses — e.g. "Sellers Losing Steam (Bullish Divergence)" or
+  "Riding the Uptrend (Bullish Continuation)". Always include both parts.
+- "definition" must be one plain, jargon-free sentence explaining what's
+  actually happening in the price action and why it matters for the call —
+  written for someone with no technical-analysis background.
 - Keep text fields short, one sentence max where possible.
 """
     resp = client.chat.completions.create(
@@ -715,6 +741,7 @@ def main():
 
             up_vol, down_vol = volume_direction(df_4h["c"], df_4h["v"], 20)
             volume_dir_text = volume_direction_readable(up_vol, down_vol)
+            volume_dir_simple = volume_direction_simple(up_vol, down_vol)
 
             df_1d = fetch_1d(symbol)
             high_52w, pct_from, lvl_20, lvl_30, lvl_40 = compute_52w(df_1d, close)
@@ -739,6 +766,7 @@ def main():
                 "macd_text": macd_text,
                 "volume_text": volume_text,
                 "volume_dir_text": volume_dir_text,
+                "volume_dir_simple": volume_dir_simple,
                 "sup": sup,
                 "res": res,
                 "high_52w": high_52w,
@@ -847,7 +875,7 @@ def main():
             f"RSI: {r['rsi']:.1f}\n"
             f"MACD: {r['macd_text']}\n"
             f"Volume: {r['volume_text']}\n"
-            f"Volume Bias: {r['volume_dir_text']}\n"
+            f"Volume Bias: {r['volume_dir_simple']}\n"
             f"Support: {r['sup']:.2f}\n"
             f"Resistance: {r['res']:.2f}\n\n"
             f"52W High: {r['high_52w']:.2f}\n"
