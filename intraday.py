@@ -231,7 +231,8 @@ def tg_send_photo(photo_path: str, caption: str):
 # QUANT SERVER (PRICE CONTEXT — additive, non-fatal)
 # =========================
 def send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, res,
-                        high_52w, pct_from, lvl_20, lvl_30, lvl_40, vol_regime, vol_mult):
+                        high_52w, pct_from, lvl_20, lvl_30, lvl_40, vol_regime, vol_mult,
+                        vol_current, vol_avg20, vol_ratio, up_vol, down_vol):
     """
     Forwards raw 4H structure (not GPT's interpretation) to quant-server so Claude
     can use it as context. Best-effort only — never raises, never touches
@@ -260,6 +261,15 @@ def send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, r
             },
             "vol_regime": vol_regime,
             "vol_mult": vol_mult,
+            "volume": {
+                "current": round(float(vol_current), 0),
+                "avg20": round(float(vol_avg20), 0),
+                "ratio": round(float(vol_ratio), 4) if np.isfinite(vol_ratio) else None,
+            },
+            "volume_direction": {
+                "up_vol": round(float(up_vol), 0),
+                "down_vol": round(float(down_vol), 0),
+            },
             "timestamp": utc_now().isoformat(),
         }
         headers = {"Content-Type": "application/json"}
@@ -783,7 +793,8 @@ def main():
 
             # Forward raw structure to quant-server (additive, best-effort — see function docstring)
             send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, res,
-                                high_52w, pct_from, lvl_20, lvl_30, lvl_40, regime, mult)
+                                high_52w, pct_from, lvl_20, lvl_30, lvl_40, regime, mult,
+                                vol_current, vol_avg20, vol_ratio, up_vol, down_vol)
 
             # "Entry advised" = Buy with confidence >= threshold, OR any Sell
             # bias at all — trim isn't confidence-gated, matching /trim's
