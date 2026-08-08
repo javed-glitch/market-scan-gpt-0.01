@@ -28,6 +28,12 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 # Charts are sent only if Bias is Buy/Sell AND confidence >= this threshold
 ACTION_CONFIDENCE_MIN = int(os.getenv("ACTION_CONFIDENCE_MIN", "70"))
 
+# Satellite rotation basket — trial dual-lens (momentum vs discount) ranking
+# appended to the summary. Purely informational, no effect on Buy/Sell/Size
+# Hint logic for these or any other symbol. Matches quant-server's
+# RULES.SATELLITE_TICKERS.
+SATELLITE_TICKERS = [s.strip().upper() for s in os.getenv("SATELLITE_TICKERS", "NVDA,TSLA,PLTR,ZETA").split(",") if s.strip()]
+
 # Optional: also forward raw 4H structure to quant-server for Claude to use.
 # Additive only — if unset, behaves exactly as before (no GPT/Telegram change).
 QUANT_SERVER_URL = os.getenv("QUANT_SERVER_URL", "").strip()
@@ -698,6 +704,71 @@ Rules:
 
 
 # =========================
+# SATELLITE ROTATION RANKING (trial — momentum vs discount, informational only)
+# =========================
+def rank_satellites(results: list, mode: str) -> list:
+    """
+    Rank-sum ranking across the satellite basket (SATELLITE_TICKERS) using
+    RSI, MACD histogram (normalised as % of price so tickers at very
+    different price levels are comparable), and % from 52W high.
+
+    Each factor is ranked 1 (best) to N (worst) across the basket, then
+    summed — lowest total wins. Two opposite interpretations of the same
+    three factors, both purely informational, no effect on any Buy/Sell/
+    Size Hint logic:
+
+    mode="momentum": reward strength — higher RSI, more positive/accelerating
+      MACD, closer to the 52W high (leadership).
+    mode="discount": reward room to recover — lower RSI, more negative MACD,
+      further below the 52W high (bigger discount).
+    """
+    sats = [r for r in results if r["symbol"] in SATELLITE_TICKERS]
+    if len(sats) < 2:
+        return []
+
+    for r in sats:
+        r["_macd_hist_pct"] = (r["macd_hist"] / r["close"] * 100) if r["close"] else 0.0
+
+    reverse = (mode == "momentum")  # higher value = better rank for momentum
+    by_rsi = sorted(sats, key=lambda r: r["rsi"], reverse=reverse)
+    by_macd = sorted(sats, key=lambda r: r["_macd_hist_pct"], reverse=reverse)
+    # pct_from is always <= 0 (negative % below 52W high). Momentum wants
+    # closest to 0 (least negative) first; discount wants most negative first.
+    by_52w = sorted(sats, key=lambda r: r["pct_from"], reverse=reverse)
+
+    rank_sum = {r["symbol"]: 0 for r in sats}
+    for ranked_list in (by_rsi, by_macd, by_52w):
+        for i, r in enumerate(ranked_list):
+            rank_sum[r["symbol"]] += i + 1
+
+    by_symbol = {r["symbol"]: r for r in sats}
+    ordered = sorted(rank_sum.items(), key=lambda kv: kv[1])
+    return [(sym, total, by_symbol[sym]) for sym, total in ordered]
+
+
+def format_satellite_block(momentum_ranking: list, discount_ranking: list) -> list:
+    if not momentum_ranking or not discount_ranking:
+        return []
+
+    def fmt_line(rank_pos, sym, total, r):
+        return (f"{rank_pos}. {sym} (rank sum {total}) — RSI {r['rsi']:.0f}, "
+                f"MACD {r['_macd_hist_pct']:+.2f}% of price, "
+                f"{r['pct_from']:.1f}% off 52W high")
+
+    out = ["-" * 50, "🎯 Satellite Rotation (trial — momentum vs discount lens)", ""]
+    out.append("Momentum lean:")
+    for i, (sym, total, r) in enumerate(momentum_ranking, 1):
+        out.append(fmt_line(i, sym, total, r))
+    out.append("")
+    out.append("Discount lean:")
+    for i, (sym, total, r) in enumerate(discount_ranking, 1):
+        out.append(fmt_line(i, sym, total, r))
+    out.append("")
+    out.append("_Informational only — no effect on Buy/Sell/Size Hint logic above._")
+    return out
+
+
+# =========================
 # MAIN
 # =========================
 def main():
@@ -774,6 +845,7 @@ def main():
                 "close": close,
                 "rsi": rsi_val,
                 "macd_text": macd_text,
+                "macd_hist": float(hist.iloc[-1]),
                 "volume_text": volume_text,
                 "volume_dir_text": volume_dir_text,
                 "volume_dir_simple": volume_dir_simple,
@@ -855,6 +927,10 @@ def main():
             lines.append("🟢 Buy/Add: " + ", ".join(actionable_buy))
         if actionable_trim:
             lines.append("🔴 Trim: " + ", ".join(actionable_trim))
+
+    momentum_ranking = rank_satellites(results, "momentum")
+    discount_ranking = rank_satellites(results, "discount")
+    lines.extend(format_satellite_block(momentum_ranking, discount_ranking))
 
     if vol_err:
         lines.append("-" * 50)
