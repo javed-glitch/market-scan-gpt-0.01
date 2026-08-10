@@ -955,6 +955,8 @@ def main():
     ov_act = [r["symbol"] for r in results
               if r.get("override",{}).get("status") in
               ("PERMITTED","HIGH_CONVICTION","DOUBLE_CONFIRM")]
+    panic_zone = [r["symbol"] for r in results
+                  if r["stage_name"] in ("Panic","Capitulation")]
 
     for idx, page_results in enumerate(pages, 1):
         buf = build_page(page_results, results, vol_sym, vol_val,
@@ -967,6 +969,7 @@ def main():
             f"Page {idx}/{len(pages)} | {syms}",
             ("Tactical BUY: "+", ".join(trigs)) if trigs else "No tactical triggers",
             ("OB Override active: "+", ".join(ov_act)) if ov_act else "No OB overrides",
+            ("⚠ Panic/Capitulation zone: "+", ".join(panic_zone)) if panic_zone else "No symbols in panic/capitulation",
         ]
         for r in page_results:
             ov_s = r.get("override",{}).get("status","DENIED")
@@ -980,7 +983,7 @@ def main():
     if failures:
         send_message("Cycle bot failures:\n"+"\n".join(failures))
 
-    print(f"Done. Pages: {len(pages)}. Triggers: {trigs}. OB overrides: {ov_act}")
+    print(f"Done. Pages: {len(pages)}. Triggers: {trigs}. OB overrides: {ov_act}. Panic/capitulation: {panic_zone}")
 
 
 if __name__ == "__main__":
