@@ -2,14 +2,11 @@ name: Market Cycle Dashboard -> Telegram
 on:
   workflow_dispatch:
   schedule:
-    # Offset +12min from intraday.yml (14:30/18:00/20:45) to avoid Twelve Data
-    # rate-limit collisions — both workflows share TWELVEDATA_API_KEY.
-    # Market open: 9:30 AM ET / 14:30 UTC (+12min offset)
-    - cron: "42 14 * * 1-5"
-    # Mid-session: 1:00 PM ET / 18:00 UTC (+12min offset)
+    # Once daily only (2026-08-10 — reduced from 3x to cut Telegram noise).
+    # Mid-session: 1:00 PM ET / 18:00 UTC. Kept at +12min offset from
+    # intraday.yml's own 18:00 slot to avoid Twelve Data rate-limit
+    # collisions — both workflows share TWELVEDATA_API_KEY.
     - cron: "12 18 * * 1-5"
-    # Pre-close: 3:45 PM ET / 20:45 UTC (+12min offset)
-    - cron: "57 20 * * 1-5"
 jobs:
   cycle_scan:
     runs-on: ubuntu-latest
@@ -30,7 +27,7 @@ jobs:
           pip install requests pandas numpy matplotlib yfinance
       - name: Run cycle dashboard
         env:
-          SYMBOLS: TSLA,NVDA,PLTR,VUSA, EQQQ
+          SYMBOLS: NVDA,AMAT,PLTR,TSLA,ZETA,BE,ANET,CRWD,ZS,DDOG,CDNS,AMZN,CEG,CRWV,NBIS,TSM,TER,ASML,MRVL,EQQQ,VUSA
           CAPITAL_PER_TICKER: "3000"
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.CYCLE_TELEGRAM_BOT_TOKEN }}
