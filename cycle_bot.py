@@ -245,6 +245,25 @@ def classify_cycle(rsi_val, pct_from_high, above_200ma, hist_rising):
     if rsi_val>=42 and p<-20 and hist_rising: return "Disbelief",12
     return "Anxiety",6
 
+# Static stage -> Add/Hold/Trim mapping (2026-08-10, confirmed by user).
+# Self-contained — no external position data, just the cycle stage itself.
+CYCLE_ACTION_MAP = {
+    "Euphoria":    "TRIM",
+    "Thrill":      "TRIM",
+    "Belief":      "HOLD",
+    "Optimism":    "HOLD",
+    "Hope":        "HOLD",
+    "Anxiety":     "HOLD",
+    "Complacency": "HOLD",
+    "Panic":       "ADD",
+    "Capitulation":"ADD",
+    "Anger":       "ADD",
+    "Depression":  "ADD",
+    "Disbelief":   "ADD",
+    "Denial":      "ADD",
+}
+def cycle_action(stage_name): return CYCLE_ACTION_MAP.get(stage_name, "HOLD")
+
 # =========================
 # LEVELS / ACTIONS
 # =========================
@@ -556,6 +575,7 @@ def analyze_symbol(symbol, vol_mult):
         "lvl40": round(h52*0.60,2),
         "stage_name":   sn,
         "stage_idx":    si,
+        "cycle_zone":   cycle_action(sn),
         "levels":       levels,
         "buy_speed":    speed,
         "core_action":  ca, "core_signal":   cs, "core_total":    ct,
@@ -955,8 +975,8 @@ def main():
     ov_act = [r["symbol"] for r in results
               if r.get("override",{}).get("status") in
               ("PERMITTED","HIGH_CONVICTION","DOUBLE_CONFIRM")]
-    panic_zone = [r["symbol"] for r in results
-                  if r["stage_name"] in ("Panic","Capitulation")]
+    trim_zone = [r["symbol"] for r in results if r["cycle_zone"]=="TRIM"]
+    add_zone  = [r["symbol"] for r in results if r["cycle_zone"]=="ADD"]
 
     for idx, page_results in enumerate(pages, 1):
         buf = build_page(page_results, results, vol_sym, vol_val,
@@ -969,12 +989,13 @@ def main():
             f"Page {idx}/{len(pages)} | {syms}",
             ("Tactical BUY: "+", ".join(trigs)) if trigs else "No tactical triggers",
             ("OB Override active: "+", ".join(ov_act)) if ov_act else "No OB overrides",
-            ("⚠ Panic/Capitulation zone: "+", ".join(panic_zone)) if panic_zone else "No symbols in panic/capitulation",
+            ("✂️ TRIM zone: "+", ".join(trim_zone)) if trim_zone else "No symbols in TRIM zone",
+            ("🎯 ADD zone: "+", ".join(add_zone)) if add_zone else "No symbols in ADD zone",
         ]
         for r in page_results:
             ov_s = r.get("override",{}).get("status","DENIED")
             cap.append(
-                f"{r['symbol']}: {r['stage_name']} | "
+                f"{r['symbol']}: {r['stage_name']} ({r['cycle_zone']}) | "
                 f"{action_now(r)[0]} | OB: {ov_s}"
             )
         send_dashboard(buf, "\n".join(cap), f"dashboard_p{idx}.png")
@@ -983,7 +1004,7 @@ def main():
     if failures:
         send_message("Cycle bot failures:\n"+"\n".join(failures))
 
-    print(f"Done. Pages: {len(pages)}. Triggers: {trigs}. OB overrides: {ov_act}. Panic/capitulation: {panic_zone}")
+    print(f"Done. Pages: {len(pages)}. Triggers: {trigs}. OB overrides: {ov_act}. TRIM: {trim_zone}. ADD: {add_zone}")
 
 
 if __name__ == "__main__":
