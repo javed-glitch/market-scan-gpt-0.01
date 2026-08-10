@@ -266,33 +266,38 @@ CYCLE_ACTION_MAP = {
 def cycle_action(stage_name): return CYCLE_ACTION_MAP.get(stage_name, "HOLD")
 
 # Row order + short trigger text for the caption table — classic cycle order
-# (peak to trough), independent of stage_idx's numbering.
+# (peak to trough), independent of stage_idx's numbering. Kept short (not the
+# full RSI/drawdown text) so Stage+Trigger+Cat alone never approaches
+# Telegram's mobile <pre> wrap width — Symbol lives on its own line below,
+# see build_cycle_table().
 CYCLE_TABLE_ROWS = [
-    ("Euphoria",     "RSI>70, <5% off high"),
-    ("Thrill",       "RSI>65, <10% off high"),
-    ("Complacency",  "near high, stalling"),
-    ("Belief",       "RSI>55-60, uptrend"),
-    ("Optimism",     "RSI>42-48, early trend"),
-    ("Hope",         "RSI>36, weak uptrend"),
-    ("Anxiety",      "pullback, constructive"),
-    ("Denial",       "RSI<42, -18% off high"),
-    ("Panic",        "RSI<36, -24% off high"),
-    ("Capitulation", "RSI<28, -40% off high"),
-    ("Anger",        "RSI<32, -32% off high"),
-    ("Depression",   "RSI<24, -48% off high"),
-    ("Disbelief",    "below 200MA, recovering"),
+    ("Euphoria",     ">70, <5%h"),
+    ("Thrill",       ">65, <10%h"),
+    ("Complacency",  "stalling"),
+    ("Belief",       ">55-60"),
+    ("Optimism",     ">42-48"),
+    ("Hope",         ">36"),
+    ("Anxiety",      "pullback"),
+    ("Denial",       "<42, -18%h"),
+    ("Panic",        "<36, -24%h"),
+    ("Capitulation", "<28, -40%h"),
+    ("Anger",        "<32, -32%h"),
+    ("Depression",   "<24, -48%h"),
+    ("Disbelief",    "recovering"),
 ]
 
 def build_cycle_table(page_results):
     by_stage = {}
     for r in page_results:
         by_stage.setdefault(r["stage_name"], []).append(r["symbol"])
-    header = f"{'Stage':<13}{'Trigger':<24}{'Cat':<5}{'Symbol'}"
+    header = f"{'Stage':<13}{'Trigger':<12}{'Cat'}"
     lines  = [header, "-"*len(header)]
     for stage, trig in CYCLE_TABLE_ROWS:
         cat = CYCLE_ACTION_MAP[stage]
-        sym = ", ".join(by_stage.get(stage, []))
-        lines.append(f"{stage:<13}{trig:<24}{cat:<5}{sym}")
+        lines.append(f"{stage:<13}{trig:<12}{cat}")
+        syms = by_stage.get(stage)
+        if syms:
+            lines.append(f"  → {', '.join(syms)}")
     return "\n".join(lines)
 
 # =========================
