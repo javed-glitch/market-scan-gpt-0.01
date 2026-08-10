@@ -1,3 +1,4 @@
+import html
 import io
 import os
 import time
@@ -263,6 +264,36 @@ CYCLE_ACTION_MAP = {
     "Denial":      "ADD",
 }
 def cycle_action(stage_name): return CYCLE_ACTION_MAP.get(stage_name, "HOLD")
+
+# Row order + short trigger text for the caption table — classic cycle order
+# (peak to trough), independent of stage_idx's numbering.
+CYCLE_TABLE_ROWS = [
+    ("Euphoria",     "RSI>70, <5% off high"),
+    ("Thrill",       "RSI>65, <10% off high"),
+    ("Complacency",  "near high, stalling"),
+    ("Belief",       "RSI>55-60, uptrend"),
+    ("Optimism",     "RSI>42-48, early trend"),
+    ("Hope",         "RSI>36, weak uptrend"),
+    ("Anxiety",      "pullback, constructive"),
+    ("Denial",       "RSI<42, -18% off high"),
+    ("Panic",        "RSI<36, -24% off high"),
+    ("Capitulation", "RSI<28, -40% off high"),
+    ("Anger",        "RSI<32, -32% off high"),
+    ("Depression",   "RSI<24, -48% off high"),
+    ("Disbelief",    "below 200MA, recovering"),
+]
+
+def build_cycle_table(page_results):
+    by_stage = {}
+    for r in page_results:
+        by_stage.setdefault(r["stage_name"], []).append(r["symbol"])
+    header = f"{'Stage':<13}{'Trigger':<24}{'Cat':<5}{'Symbol'}"
+    lines  = [header, "-"*len(header)]
+    for stage, trig in CYCLE_TABLE_ROWS:
+        cat = CYCLE_ACTION_MAP[stage]
+        sym = ", ".join(by_stage.get(stage, []))
+        lines.append(f"{stage:<13}{trig:<24}{cat:<5}{sym}")
+    return "\n".join(lines)
 
 # =========================
 # LEVELS / ACTIONS
@@ -934,9 +965,14 @@ def chunk_results(results, size=MAX_CARDS_PER_PAGE):
 # TELEGRAM
 # =========================
 def send_dashboard(img_buf, caption, filename="dashboard.png"):
+    # Wrapped in <pre> so the table's column padding renders monospace —
+    # plain-text captions use Telegram's proportional font and the columns
+    # go ragged. Truncate before escaping/wrapping to stay under the 1024
+    # hard cap with margin for entity expansion + the <pre></pre> tags.
+    safe = html.escape(caption[:900])
     requests.post(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument",
-        data={"chat_id":TELEGRAM_CHAT_ID,"caption":caption[:950],
+        data={"chat_id":TELEGRAM_CHAT_ID,"caption":f"<pre>{safe}</pre>","parse_mode":"HTML",
               "disable_web_page_preview":True},
         files={"document":(filename,img_buf.getvalue(),"image/png")},
         timeout=90,
@@ -982,22 +1018,17 @@ def main():
         buf = build_page(page_results, results, vol_sym, vol_val,
                          vol_rname, vol_mult, ts, idx, len(pages))
         syms = ", ".join(r["symbol"] for r in page_results)
+        # Tactical BUY / OB Override status is shown on the dashboard image
+        # itself (per-card) — not duplicated in the text caption. The table
+        # below replaces the old per-symbol lines and TRIM/ADD zone summary.
         cap  = [
             f"Market Cycle Dashboard — {ts}",
             f"{vol_sym}: {f'{vol_val:.1f}' if vol_val else 'N/A'}"
             f" | {vol_rname} | x{vol_mult:.2f}",
             f"Page {idx}/{len(pages)} | {syms}",
-            ("Tactical BUY: "+", ".join(trigs)) if trigs else "No tactical triggers",
-            ("OB Override active: "+", ".join(ov_act)) if ov_act else "No OB overrides",
-            ("✂️ TRIM zone: "+", ".join(trim_zone)) if trim_zone else "No symbols in TRIM zone",
-            ("🎯 ADD zone: "+", ".join(add_zone)) if add_zone else "No symbols in ADD zone",
+            "",
+            build_cycle_table(page_results),
         ]
-        for r in page_results:
-            ov_s = r.get("override",{}).get("status","DENIED")
-            cap.append(
-                f"{r['symbol']}: {r['stage_name']} ({r['cycle_zone']}) | "
-                f"{action_now(r)[0]} | OB: {ov_s}"
-            )
         send_dashboard(buf, "\n".join(cap), f"dashboard_p{idx}.png")
         time.sleep(0.4)
 
