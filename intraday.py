@@ -30,9 +30,11 @@ ACTION_CONFIDENCE_MIN = int(os.getenv("ACTION_CONFIDENCE_MIN", "70"))
 
 # Satellite rotation basket — trial dual-lens (momentum vs discount) ranking
 # appended to the summary. Purely informational, no effect on Buy/Sell/Size
-# Hint logic for these or any other symbol. Matches quant-server's
-# RULES.SATELLITE_TICKERS.
-SATELLITE_TICKERS = [s.strip().upper() for s in os.getenv("SATELLITE_TICKERS", "NVDA,TSLA,PLTR,ZETA").split(",") if s.strip()]
+# Hint logic for these or any other symbol. AMAT added 2026-08-13 for this
+# informational ranking only — quant-server's RULES.SATELLITE_TICKERS stays
+# at NVDA/TSLA/PLTR/ZETA (grade-waiver/double-down eligibility), so this list
+# is deliberately no longer 1:1 with that one.
+SATELLITE_TICKERS = [s.strip().upper() for s in os.getenv("SATELLITE_TICKERS", "NVDA,TSLA,PLTR,ZETA,AMAT").split(",") if s.strip()]
 
 # Optional: also forward raw 4H structure to quant-server for Claude to use.
 # Additive only — if unset, behaves exactly as before (no GPT/Telegram change).
