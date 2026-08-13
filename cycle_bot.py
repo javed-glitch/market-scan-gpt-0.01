@@ -246,8 +246,11 @@ def classify_cycle(rsi_val, pct_from_high, above_200ma, hist_rising):
     if rsi_val>=42 and p<-20 and hist_rising: return "Disbelief",12
     return "Anxiety",6
 
-# Static stage -> Add/Hold/Trim mapping (2026-08-10, confirmed by user).
-# Self-contained — no external position data, just the cycle stage itself.
+# Static stage -> Add/Hold/Trim/Double-Down mapping (2026-08-10, refined
+# 2026-08-13). Self-contained — no external position data, just the cycle
+# stage itself. Anger/Capitulation/Depression split out of ADD into their own
+# DOUBLE DOWN tier — deepest-fear stages, highest-conviction entries, vs
+# Denial/Panic/Disbelief which stay plain ADD (earlier/shallower fear).
 CYCLE_ACTION_MAP = {
     "Euphoria":    "TRIM",
     "Thrill":      "TRIM",
@@ -257,9 +260,9 @@ CYCLE_ACTION_MAP = {
     "Anxiety":     "HOLD",
     "Complacency": "HOLD",
     "Panic":       "ADD",
-    "Capitulation":"ADD",
-    "Anger":       "ADD",
-    "Depression":  "ADD",
+    "Capitulation":"DOUBLE DOWN",
+    "Anger":       "DOUBLE DOWN",
+    "Depression":  "DOUBLE DOWN",
     "Disbelief":   "ADD",
     "Denial":      "ADD",
 }
@@ -1018,6 +1021,7 @@ def main():
               ("PERMITTED","HIGH_CONVICTION","DOUBLE_CONFIRM")]
     trim_zone = [r["symbol"] for r in results if r["cycle_zone"]=="TRIM"]
     add_zone  = [r["symbol"] for r in results if r["cycle_zone"]=="ADD"]
+    dd_zone   = [r["symbol"] for r in results if r["cycle_zone"]=="DOUBLE DOWN"]
 
     for idx, page_results in enumerate(pages, 1):
         buf = build_page(page_results, results, vol_sym, vol_val,
@@ -1040,7 +1044,7 @@ def main():
     if failures:
         send_message("Cycle bot failures:\n"+"\n".join(failures))
 
-    print(f"Done. Pages: {len(pages)}. Triggers: {trigs}. OB overrides: {ov_act}. TRIM: {trim_zone}. ADD: {add_zone}")
+    print(f"Done. Pages: {len(pages)}. Triggers: {trigs}. OB overrides: {ov_act}. TRIM: {trim_zone}. ADD: {add_zone}. DOUBLE DOWN: {dd_zone}")
 
 
 if __name__ == "__main__":
