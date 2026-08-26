@@ -240,7 +240,7 @@ def tg_send_photo(photo_path: str, caption: str):
 # =========================
 def send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, res,
                         high_52w, pct_from, lvl_20, lvl_30, lvl_40, vol_regime, vol_mult,
-                        vol_current, vol_avg20, vol_ratio, up_vol, down_vol):
+                        vol_current, vol_avg20, vol_ratio, up_vol, down_vol, atr14):
     """
     Forwards raw 4H structure (not GPT's interpretation) to quant-server so Claude
     can use it as context. Best-effort only — never raises, never touches
@@ -267,6 +267,7 @@ def send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, r
                 "30": round(float(lvl_30), 4),
                 "40": round(float(lvl_40), 4),
             },
+            "atr14": round(float(atr14), 4),
             "vol_regime": vol_regime,
             "vol_mult": vol_mult,
             "volume": {
@@ -487,6 +488,34 @@ def compute_52w(daily_df: pd.DataFrame, last_close: float):
     lvl_30 = high_52w * 0.70
     lvl_40 = high_52w * 0.60
     return high_52w, pct_from, lvl_20, lvl_30, lvl_40
+
+
+# =========================
+# ATR (Average True Range)
+# =========================
+def compute_atr(daily_df: pd.DataFrame, period: int = 14) -> float:
+    """
+    Wilder-smoothed ATR(14) from daily OHLC — same smoothing convention as
+    rsi_wilder() above. Added 2026-08-26 for quant-server's /rotate AMOUNT,
+    which uses it to show a volatility-based expected price range (how big a
+    move is typical, NOT a directional forecast) alongside the technical/
+    analyst-driven ranking. Deliberately kept separate from RSI/MACD/support-
+    resistance, which describe direction/momentum — ATR only describes
+    magnitude.
+    """
+    high, low, close = daily_df["h"], daily_df["l"], daily_df["c"]
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1).dropna()
+    if len(tr) < period:
+        raise RuntimeError(f"Not enough daily bars for ATR({period}): {len(tr)}")
+    atr = tr.iloc[:period].mean()
+    for val in tr.iloc[period:]:
+        atr = (atr * (period - 1) + val) / period
+    return float(atr)
 
 
 # =========================
@@ -828,6 +857,7 @@ def main():
 
             df_1d = fetch_1d(symbol)
             high_52w, pct_from, lvl_20, lvl_30, lvl_40 = compute_52w(df_1d, close)
+            atr14 = compute_atr(df_1d, 14)
 
             time.sleep(SLEEP_BETWEEN_OTHER_CALLS)
             g = gpt_analyze(symbol, tf, close, rsi_val, macd_text, sup, res,
@@ -858,6 +888,7 @@ def main():
                 "lvl_20": lvl_20,
                 "lvl_30": lvl_30,
                 "lvl_40": lvl_40,
+                "atr14": atr14,
                 "g": g,
                 "trading_bias": trading_bias,
                 "confidence": conf,
@@ -868,7 +899,7 @@ def main():
             # Forward raw structure to quant-server (additive, best-effort — see function docstring)
             send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, res,
                                 high_52w, pct_from, lvl_20, lvl_30, lvl_40, regime, mult,
-                                vol_current, vol_avg20, vol_ratio, up_vol, down_vol)
+                                vol_current, vol_avg20, vol_ratio, up_vol, down_vol, atr14)
 
             # "Entry advised" = Buy with confidence >= threshold, OR any Sell
             # bias at all — trim isn't confidence-gated, matching /trim's
