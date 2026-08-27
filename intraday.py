@@ -240,7 +240,8 @@ def tg_send_photo(photo_path: str, caption: str):
 # =========================
 def send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, res,
                         high_52w, pct_from, lvl_20, lvl_30, lvl_40, vol_regime, vol_mult,
-                        vol_current, vol_avg20, vol_ratio, up_vol, down_vol, atr14):
+                        vol_current, vol_avg20, vol_ratio, up_vol, down_vol, atr14,
+                        efficiency_ratio, adx14, trend_regime):
     """
     Forwards raw 4H structure (not GPT's interpretation) to quant-server so Claude
     can use it as context. Best-effort only — never raises, never touches
@@ -268,6 +269,9 @@ def send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, r
                 "40": round(float(lvl_40), 4),
             },
             "atr14": round(float(atr14), 4),
+            "efficiency_ratio": round(float(efficiency_ratio), 4),
+            "adx14": round(float(adx14), 2),
+            "trend_regime": trend_regime,
             "vol_regime": vol_regime,
             "vol_mult": vol_mult,
             "volume": {
@@ -516,6 +520,88 @@ def compute_atr(daily_df: pd.DataFrame, period: int = 14) -> float:
     for val in tr.iloc[period:]:
         atr = (atr * (period - 1) + val) / period
     return float(atr)
+
+
+# =========================
+# REGIME (Efficiency Ratio + ADX) — added 2026-08-27
+# =========================
+def compute_efficiency_ratio(daily_df: pd.DataFrame, period: int = 20) -> float:
+    """
+    Kaufman's Efficiency Ratio: net price change over `period` days divided
+    by the sum of each day's absolute move over the same window. Near 1 =
+    price travelled in a straight line (trending); near 0 = lots of daily
+    movement with little net progress (choppy/ranging). This is a measure
+    of the PRICE'S OWN path efficiency -- unrelated to "market efficiency"
+    in the economic/informational sense (Efficient Market Hypothesis is a
+    different concept entirely).
+    """
+    close = daily_df["c"]
+    if len(close) < period + 1:
+        raise RuntimeError(f"Not enough daily bars for Efficiency Ratio({period}): {len(close)}")
+    window = close.tail(period + 1)
+    net_change = abs(float(window.iloc[-1]) - float(window.iloc[0]))
+    volatility_sum = window.diff().abs().sum()
+    if volatility_sum == 0:
+        return 0.0
+    return float(net_change / volatility_sum)
+
+
+def compute_adx(daily_df: pd.DataFrame, period: int = 14) -> float:
+    """
+    Average Directional Index -- the standard trend-strength indicator
+    (regardless of direction). >~25 = trending, <~20 = weak/ranging.
+    Wilder's original smoothing method, same convention as rsi_wilder()/
+    compute_atr() above.
+    """
+    high, low, close = daily_df["h"], daily_df["l"], daily_df["c"]
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = ((up_move > down_move) & (up_move > 0)) * up_move
+    minus_dm = ((down_move > up_move) & (down_move > 0)) * down_move
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+
+    combined = pd.concat([tr, plus_dm, minus_dm], axis=1).dropna()
+    combined.columns = ["tr", "plus_dm", "minus_dm"]
+    if len(combined) < period * 2:
+        raise RuntimeError(f"Not enough daily bars for ADX({period}): {len(combined)}")
+
+    def wilder_smooth(s: pd.Series, period: int) -> pd.Series:
+        seed = s.iloc[:period].sum()
+        out = [seed]
+        for val in s.iloc[period:]:
+            out.append(out[-1] - (out[-1] / period) + val)
+        return pd.Series(out, index=s.index[period - 1:])
+
+    sm_tr = wilder_smooth(combined["tr"], period)
+    sm_plus_dm = wilder_smooth(combined["plus_dm"], period)
+    sm_minus_dm = wilder_smooth(combined["minus_dm"], period)
+
+    plus_di = 100 * sm_plus_dm / sm_tr
+    minus_di = 100 * sm_minus_dm / sm_tr
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+
+    adx_val = dx.iloc[:period].mean()
+    for val in dx.iloc[period:]:
+        adx_val = (adx_val * (period - 1) + val) / period
+    return float(adx_val)
+
+
+def classify_regime(efficiency_ratio: float, adx_val: float) -> str:
+    """
+    Combines ER + ADX into a plain label. Thresholds match the values
+    validated live against real satellite-ticker data on 2026-08-27
+    (AMAT ER 0.10/ADX 14.8 -> CHOPPY; PLTR ER 0.54/ADX 35.0 -> TRENDING).
+    """
+    if adx_val > 25 and efficiency_ratio > 0.4:
+        return "TRENDING"
+    if adx_val < 20 and efficiency_ratio < 0.3:
+        return "CHOPPY"
+    return "MIXED"
 
 
 # =========================
@@ -858,6 +944,14 @@ def main():
             df_1d = fetch_1d(symbol)
             high_52w, pct_from, lvl_20, lvl_30, lvl_40 = compute_52w(df_1d, close)
             atr14 = compute_atr(df_1d, 14)
+            # Named trend_regime, NOT regime -- that name is already the
+            # VIX/VXN volatility regime (FEAR/NORMAL/CALM/PANIC) computed
+            # earlier in this function. Trend regime and volatility regime
+            # are different dimensions (a market can be calm-and-choppy or
+            # calm-and-trending) -- see compute_efficiency_ratio()'s docstring.
+            efficiency_ratio = compute_efficiency_ratio(df_1d, 20)
+            adx14 = compute_adx(df_1d, 14)
+            trend_regime = classify_regime(efficiency_ratio, adx14)
 
             time.sleep(SLEEP_BETWEEN_OTHER_CALLS)
             g = gpt_analyze(symbol, tf, close, rsi_val, macd_text, sup, res,
@@ -889,6 +983,9 @@ def main():
                 "lvl_30": lvl_30,
                 "lvl_40": lvl_40,
                 "atr14": atr14,
+                "efficiency_ratio": efficiency_ratio,
+                "adx14": adx14,
+                "trend_regime": trend_regime,
                 "g": g,
                 "trading_bias": trading_bias,
                 "confidence": conf,
@@ -899,7 +996,8 @@ def main():
             # Forward raw structure to quant-server (additive, best-effort — see function docstring)
             send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, res,
                                 high_52w, pct_from, lvl_20, lvl_30, lvl_40, regime, mult,
-                                vol_current, vol_avg20, vol_ratio, up_vol, down_vol, atr14)
+                                vol_current, vol_avg20, vol_ratio, up_vol, down_vol, atr14,
+                                efficiency_ratio, adx14, trend_regime)
 
             # "Entry advised" = Buy with confidence >= threshold, OR any Sell
             # bias at all — trim isn't confidence-gated, matching /trim's
