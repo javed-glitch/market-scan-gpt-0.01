@@ -50,6 +50,12 @@ LOOKBACK_1D_BARS = int(os.getenv("LOOKBACK_1D_BARS", "320"))  # >= 252 needed
 
 CHART_BARS = int(os.getenv("CHART_BARS", "120"))
 
+# Trend-direction lookback for MACD histogram / RSI (2026-08-27) -- compares
+# today's value to this many 4H bars ago, read straight out of the same
+# hist/rsi Series already computed for the point-in-time reading. No new
+# fetch, no persisted state between runs.
+TREND_LOOKBACK_BARS = int(os.getenv("TREND_LOOKBACK_BARS", "6"))
+
 # FREE TIER RATE LIMITING (Twelve Data)
 TD_MIN_SECONDS_BETWEEN_CALLS = float(os.getenv("TD_MIN_SECONDS_BETWEEN_CALLS", "9.0"))
 
@@ -241,7 +247,8 @@ def tg_send_photo(photo_path: str, caption: str):
 def send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, res,
                         high_52w, pct_from, lvl_20, lvl_30, lvl_40, vol_regime, vol_mult,
                         vol_current, vol_avg20, vol_ratio, up_vol, down_vol, atr14,
-                        efficiency_ratio, adx14, trend_regime):
+                        efficiency_ratio, adx14, trend_regime,
+                        rsi_trend, rsi_trend_prior, macd_hist_trend, macd_hist_trend_prior):
     """
     Forwards raw 4H structure (not GPT's interpretation) to quant-server so Claude
     can use it as context. Best-effort only — never raises, never touches
@@ -272,6 +279,10 @@ def send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, r
             "efficiency_ratio": round(float(efficiency_ratio), 4),
             "adx14": round(float(adx14), 2),
             "trend_regime": trend_regime,
+            "rsi_trend": rsi_trend,
+            "rsi_trend_prior": round(float(rsi_trend_prior), 2) if rsi_trend_prior is not None else None,
+            "macd_hist_trend": macd_hist_trend,
+            "macd_hist_trend_prior": round(float(macd_hist_trend_prior), 6) if macd_hist_trend_prior is not None else None,
             "vol_regime": vol_regime,
             "vol_mult": vol_mult,
             "volume": {
@@ -604,6 +615,33 @@ def classify_regime(efficiency_ratio: float, adx_val: float) -> str:
     return "MIXED"
 
 
+def trend_label(series: pd.Series, lookback: int = TREND_LOOKBACK_BARS, flat_pct: float = 0.05):
+    """
+    Directional read on a value that's already been computed as a full
+    Series (MACD histogram, RSI) -- compares today's reading to `lookback`
+    bars ago from the SAME series, so it costs nothing extra: no new fetch,
+    no history persisted between runs. Added 2026-08-27 to stop Claude
+    guessing "improving"/"deteriorating" narrative off a single snapshot
+    (confirmed wrong on CRWV -- histogram had been climbing toward zero for
+    a week, but the single-point reading read as "still accelerating down").
+
+    "rising"/"falling" rather than "improving"/"deteriorating" deliberately
+    -- rising is directionally unambiguous for both MACD hist and RSI,
+    whereas "improving" requires knowing which side you're rooting for.
+
+    Returns (label, prior_value) -- label is "rising"/"falling"/"flat"/"unknown".
+    """
+    if len(series) <= lookback:
+        return ("unknown", None)
+    current = float(series.iloc[-1])
+    prior = float(series.iloc[-1 - lookback])
+    delta = current - prior
+    scale = float(series.tail(lookback + 1).abs().max()) or 1.0
+    if abs(delta) < scale * flat_pct:
+        return ("flat", prior)
+    return ("rising" if delta > 0 else "falling", prior)
+
+
 # =========================
 # CHARTS
 # =========================
@@ -927,10 +965,14 @@ def main():
                 raise RuntimeError(f"{symbol} 4H: not enough bars ({len(df_4h)})")
 
             close = float(df_4h["c"].iloc[-1])
-            rsi_val = float(rsi_wilder(df_4h["c"], 14).iloc[-1])
+            rsi_series = rsi_wilder(df_4h["c"], 14)
+            rsi_val = float(rsi_series.iloc[-1])
 
             macd_line, sig_line, hist = macd(df_4h["c"], 12, 26, 9)
             macd_text = macd_readable(macd_line, sig_line, hist)
+
+            rsi_trend, rsi_trend_prior = trend_label(rsi_series)
+            macd_hist_trend, macd_hist_trend_prior = trend_label(hist)
 
             sup, res = support_resistance(df_4h)
 
@@ -986,6 +1028,8 @@ def main():
                 "efficiency_ratio": efficiency_ratio,
                 "adx14": adx14,
                 "trend_regime": trend_regime,
+                "rsi_trend": rsi_trend,
+                "macd_hist_trend": macd_hist_trend,
                 "g": g,
                 "trading_bias": trading_bias,
                 "confidence": conf,
@@ -997,7 +1041,8 @@ def main():
             send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, res,
                                 high_52w, pct_from, lvl_20, lvl_30, lvl_40, regime, mult,
                                 vol_current, vol_avg20, vol_ratio, up_vol, down_vol, atr14,
-                                efficiency_ratio, adx14, trend_regime)
+                                efficiency_ratio, adx14, trend_regime,
+                                rsi_trend, rsi_trend_prior, macd_hist_trend, macd_hist_trend_prior)
 
             # "Entry advised" = Buy with confidence >= threshold, OR any Sell
             # bias at all — trim isn't confidence-gated, matching /trim's
