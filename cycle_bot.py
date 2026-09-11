@@ -1,5 +1,6 @@
 import html
 import io
+import json
 import os
 import time
 from datetime import datetime, timezone
@@ -970,6 +971,33 @@ def chunk_results(results, size=MAX_CARDS_PER_PAGE):
         yield results[i:i+size]
 
 # =========================
+# JSON EXPORT (2026-09-11) — additive only, does not touch the
+# Telegram/matplotlib path above. Same `results` list already built for the
+# dashboard image, serialized for the web dashboard (GitHub Pages now,
+# portable to Netlify later — see chat). analyze_symbol()'s dict is built
+# from pandas/numpy calculations, so numpy scalar types (float64/int64/bool_)
+# leak in and json.dumps() chokes on them directly — json_safe() recurses
+# through and casts them to plain Python types first.
+# =========================
+def json_safe(obj):
+    if isinstance(obj, dict):
+        return {k: json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [json_safe(v) for v in obj]
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    return obj
+
+def write_cycle_data(results, ts, path="cycle_data.json"):
+    payload = {"generated_at": ts, "results": json_safe(results)}
+    with open(path, "w") as f:
+        json.dump(payload, f, indent=None, separators=(",", ":"))
+
+# =========================
 # TELEGRAM
 # =========================
 def send_dashboard(img_buf, caption, filename="dashboard.png"):
@@ -1013,6 +1041,13 @@ def main():
 
     if not results:
         raise RuntimeError("All symbols failed:\n"+"\n".join(failures))
+
+    # Best-effort — a JSON serialization hiccup must never block the
+    # existing Telegram dashboard send below.
+    try:
+        write_cycle_data(results, ts)
+    except Exception as e:
+        print(f"cycle_data.json export failed (non-fatal): {repr(e)}")
 
     pages  = list(chunk_results(results, MAX_CARDS_PER_PAGE))
     trigs  = [r["symbol"] for r in results if r["tactical_action"]=="BUY"]

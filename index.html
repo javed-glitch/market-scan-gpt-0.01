@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Market Cycle Dashboard</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#0f1216; --surface:#171b21; --surface2:#1d222a; --border:#282e37;
+    --text:#e8eaee; --text-dim:#a2aab6; --text-faint:#6f7885;
+    --green:#4fae82; --green-bg:#163826;
+    --red:#e2685f; --red-bg:#3a2018;
+    --amber:#e3a253; --amber-bg:#3a2e1a;
+    --blue:#6ea3d8; --blue-bg:#182636;
+    --purple:#a684e8; --purple-bg:#241c33;
+    --teal:#4fd3c4;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f4f5f7; --surface:#ffffff; --surface2:#eef0f3; --border:#dde1e6;
+      --text:#181c22; --text-dim:#5b6472; --text-faint:#8892a0;
+      --green:#1e7a4f; --green-bg:#e4f5ec;
+      --red:#a8412c; --red-bg:#fbeae6;
+      --amber:#a8712c; --amber-bg:#faedd9;
+      --blue:#2f5fa8; --blue-bg:#e8f0fa;
+      --purple:#6a3fc0; --purple-bg:#f1ecfb;
+      --teal:#1f8f80;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:'IBM Plex Sans',system-ui,sans-serif; padding:0 0 60px}
+  .wrap{max-width:1400px; margin:0 auto; padding:0 18px}
+  code,.mono{font-family:'IBM Plex Mono',monospace}
+
+  header{background:var(--surface); border-bottom:1px solid var(--border); padding:20px 18px}
+  header .inner{max-width:1400px; margin:0 auto; display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:10px}
+  h1{font-size:20px; font-weight:700; margin:0; letter-spacing:-0.01em}
+  .meta{color:var(--text-faint); font-size:12px; font-family:'IBM Plex Mono',monospace}
+  #refreshBtn{background:var(--surface2); border:1px solid var(--border); color:var(--text-dim); border-radius:7px; padding:6px 12px; font-size:12px; cursor:pointer; font-family:'IBM Plex Sans',sans-serif}
+  #refreshBtn:hover{color:var(--text); border-color:var(--text-faint)}
+
+  .status{padding:40px 18px; text-align:center; color:var(--text-faint); font-size:14px}
+
+  .stagebar{display:flex; gap:2px; margin:18px 0 6px; border-radius:8px; overflow:hidden}
+  .stagebar div{flex:1; text-align:center; padding:8px 2px; font-size:9.5px; font-weight:600; font-family:'IBM Plex Mono',monospace; opacity:0.35; white-space:nowrap; overflow:hidden}
+  .stagebar div.on{opacity:1; box-shadow:inset 0 0 0 2px rgba(255,255,255,0.5)}
+  .stagebar-label{color:var(--text-faint); font-size:11px; text-transform:uppercase; letter-spacing:0.05em; margin-top:14px}
+
+  .summary{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin:18px 0 24px}
+  .summary .card{background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px}
+  .summary .card .lbl{color:var(--text-faint); font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:5px}
+  .summary .card .val{font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:14px}
+
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:14px}
+  .tile{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px 16px; display:flex; flex-direction:column; gap:10px}
+  .tile.trigger{border-color:var(--red); box-shadow:0 0 0 1px var(--red)}
+
+  .t-head{display:flex; align-items:baseline; justify-content:space-between; gap:8px}
+  .t-head .sym{font-weight:700; font-size:15px}
+  .t-head .px{font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:14px; margin-left:8px}
+  .t-head .pct{color:var(--text-faint); font-size:10.5px; font-family:'IBM Plex Mono',monospace}
+
+  .badges{display:flex; flex-wrap:wrap; gap:5px}
+  .badge{font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; font-family:'IBM Plex Mono',monospace}
+
+  .banner{border-radius:7px; padding:7px 10px; text-align:center; font-weight:700; font-size:12.5px}
+
+  .twocol{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+  .box{background:var(--surface2); border-radius:7px; padding:8px 10px}
+  .box .lbl{color:var(--text-faint); font-size:10px; text-transform:uppercase; letter-spacing:0.03em}
+  .box .val{font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:14px; margin:2px 0}
+  .box .note{color:var(--text-faint); font-size:10px}
+
+  .fourcol{display:grid; grid-template-columns:repeat(4,1fr); gap:6px}
+  .ind{background:var(--surface2); border-radius:7px; padding:6px 8px}
+  .ind .lbl{color:var(--text-faint); font-size:9.5px; text-transform:uppercase}
+  .ind .val{font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:12.5px}
+  .ind .sub{color:var(--text-faint); font-size:9px}
+
+  .bar52{background:var(--surface2); border-radius:7px; padding:7px 10px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-dim)}
+
+  .pmap{border-top:1px solid var(--border); padding-top:8px}
+  .pmap .h{font-size:10px; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-faint); font-weight:600; margin-bottom:6px}
+  .pmap .row{display:flex; justify-content:space-between; font-size:11.5px; padding:2px 0}
+  .pmap .row .l{color:var(--text-dim)}
+  .pmap .row .v{font-family:'IBM Plex Mono',monospace; font-weight:700}
+
+  .obs{border-top:1px solid var(--border); padding-top:8px}
+  .obs .h{font-size:10px; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-faint); font-weight:600; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center}
+  .ob-row{display:flex; align-items:center; gap:8px; font-size:11px; padding:4px 6px; border-radius:5px; margin-bottom:3px}
+  .ob-row .tag{font-size:9px; font-weight:700; padding:1px 6px; border-radius:10px; font-family:'IBM Plex Mono',monospace; flex-shrink:0; width:52px; text-align:center}
+  .ob-row .zone{font-family:'IBM Plex Mono',monospace; font-weight:600; flex:1}
+  .ob-row .vol{font-family:'IBM Plex Mono',monospace; color:var(--text-faint); font-size:10px}
+  .obs .none{color:var(--text-faint); font-size:11px; font-style:italic}
+
+  .override{border-radius:8px; padding:10px 12px; border:1.4px solid}
+  .override .h{display:flex; justify-content:space-between; font-size:9.5px; color:var(--text-faint); text-transform:uppercase; margin-bottom:6px}
+  .override .status{font-weight:700; font-size:13px}
+  .override .limit{font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:12px; margin-top:4px}
+  .override .reason{font-size:10.5px; color:var(--text-dim); margin-top:2px}
+
+  footer{text-align:center; color:var(--text-faint); font-size:11px; padding-top:30px}
+</style>
+</head>
+<body>
+<header>
+  <div class="inner">
+    <div>
+      <h1>Market Cycle Dashboard</h1>
+      <div class="meta" id="genAt">loading…</div>
+    </div>
+    <button id="refreshBtn" onclick="load()">↻ Refresh</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div id="status" class="status">Loading cycle_data.json…</div>
+  <div id="stagebar"></div>
+  <div id="summary" class="summary" style="display:none"></div>
+  <div id="grid" class="grid"></div>
+</div>
+
+<footer>Auto-refreshes every 15 minutes · data updates once daily on the cycle_bot.py schedule · <a href="https://github.com/javed-glitch/market-scan-gpt-0.01" style="color:var(--text-faint)">source</a></footer>
+
+<script>
+const STAGE_NAMES = ["Hope","Optimism","Belief","Thrill","Euphoria","Complacency","Anxiety","Denial","Panic","Capitulation","Anger","Depression","Disbelief"];
+const STAGE_COLORS = [
+  ["#9FE1CB","#085041"],["#5DCAA5","#04342C"],["#3266AD","#E6F1FB"],
+  ["#185FA5","#E6F1FB"],["#7F77DD","#EEEDFE"],["#AFA9EC","#26215C"],
+  ["#FAC775","#412402"],["#EF9F27","#3A2000"],["#F0997B","#4A1B0C"],
+  ["#D85A30","#FAECE7"],["#E24B4A","#FCEBEB"],["#A32D2D","#FCEBEB"],
+  ["#888780","#F1EFE8"],
+];
+const DATA_URL = "https://raw.githubusercontent.com/javed-glitch/market-scan-gpt-0.01/main/cycle_data.json";
+
+function fmtGBP(n){ return "£"+Math.round(n).toLocaleString(); }
+
+function actionNow(r){
+  if (r.tactical_action === "BUY") return ["TACTICAL BUY","var(--red-bg)","var(--red)"];
+  if ((r.core_action||"").includes("BUY")) return ["BUY DIPS","var(--green-bg)","var(--green)"];
+  if ((r.core_action||"").includes("HOLD") && r.near_trigger) return ["HOLD / WAIT","var(--amber-bg)","var(--amber)"];
+  return ["WAIT","var(--surface2)","var(--text-faint)"];
+}
+
+function buildTile(r){
+  const [stageBg, stageFg] = STAGE_COLORS[r.stage_idx] || ["#888","#fff"];
+  const [actTxt, actBg, actFg] = actionNow(r);
+  const isTrigger = r.tactical_action === "BUY";
+  const cs = r.csym || "$";
+
+  let badges = `<span class="badge" style="background:${stageBg};color:${stageFg}">${r.stage_name}</span>`;
+  badges += r.above_200ma
+    ? `<span class="badge" style="background:var(--green-bg);color:var(--green)">↑ Above 200MA</span>`
+    : `<span class="badge" style="background:var(--red-bg);color:var(--red)">↓ Below 200MA</span>`;
+  if (r.near_trigger) badges += `<span class="badge" style="background:var(--amber-bg);color:var(--amber)">⚠ Near panic</span>`;
+
+  const lv = r.levels || {};
+  const pmapRows = [
+    ["Add zone", lv.entry != null ? `${cs}${lv.entry.toFixed(2)}` : "–", "var(--text)"],
+    ["Panic zone", (lv.panic_lo!=null&&lv.panic_hi!=null) ? `${cs}${lv.panic_lo.toFixed(0)} – ${cs}${lv.panic_hi.toFixed(0)}` : "–", "var(--red)"],
+    ["Capitulation", (lv.cap_lo!=null&&lv.cap_hi!=null) ? `${cs}${lv.cap_lo.toFixed(0)} – ${cs}${lv.cap_hi.toFixed(0)}` : "–", "var(--red)"],
+    ["First trim", (lv.ft_lo!=null&&lv.ft_hi!=null) ? `${cs}${lv.ft_lo.toFixed(0)} – ${cs}${lv.ft_hi.toFixed(0)}` : "–", "var(--green)"],
+    ["Strong trim", (lv.st_lo!=null&&lv.st_hi!=null) ? `${cs}${lv.st_lo.toFixed(0)} – ${cs}${lv.st_hi.toFixed(0)}` : "–", "var(--green)"],
+    ["Dist to panic", lv.dist!=null ? `${lv.dist.toFixed(1)}%` : "–", r.near_trigger ? "var(--amber)" : "var(--text-dim)"],
+  ];
+
+  const obs = r.order_blocks || [];
+  let obHtml = obs.length ? obs.slice(0,4).map(ob => {
+    const isD = ob.type === "demand";
+    return `<div class="ob-row" style="background:var(--surface2)">
+      <span class="tag" style="background:${isD?"var(--green-bg)":"var(--red-bg)"};color:${isD?"var(--green)":"var(--red)"}">${isD?"DEMAND":"SUPPLY"}</span>
+      <span class="zone">${cs}${ob.lo.toFixed(0)} – ${cs}${ob.hi.toFixed(0)}</span>
+      <span class="vol">${ob.vol_mult.toFixed(1)}x · ${ob.sessions_ago}d</span>
+    </div>`;
+  }).join("") : `<div class="none">No order block data</div>`;
+
+  const ov = r.override || {status:"DENIED", reason:"No order block data"};
+  const ovColors = {
+    PERMITTED: ["var(--green)","var(--green-bg)"],
+    HIGH_CONVICTION: ["var(--amber)","var(--amber-bg)"],
+    DOUBLE_CONFIRM: ["var(--purple)","var(--purple-bg)"],
+    DENIED: ["var(--text-faint)","var(--surface2)"],
+  };
+  const [ovFg, ovBg] = ovColors[ov.status] || ovColors.DENIED;
+  const ovLabel = {PERMITTED:"LIMIT ORDER PERMITTED",HIGH_CONVICTION:"HIGH CONVICTION LIMIT",DOUBLE_CONFIRM:"DOUBLE CONFIRMATION",DENIED:"NO OVERRIDE — WAIT"}[ov.status] || "NO OVERRIDE — WAIT";
+
+  return `<div class="tile ${isTrigger?"trigger":""}">
+    <div class="t-head">
+      <div><span class="sym">${r.symbol}</span><span class="px">${cs}${r.close.toFixed(2)}</span></div>
+      <div class="pct">${r.pct_from_high.toFixed(1)}% from 52W</div>
+    </div>
+    <div class="badges">${badges}</div>
+    <div class="banner" style="background:${actBg};color:${actFg}">${actTxt}</div>
+    <div class="twocol">
+      <div class="box">
+        <div class="lbl">Core £${r.core_total}</div>
+        <div class="val">£${r.core_signal}</div>
+        <div class="note">${r.core_action}</div>
+      </div>
+      <div class="box">
+        <div class="lbl">Tactical £${r.tactical_total}</div>
+        <div class="val">£${r.tactical_signal}</div>
+        <div class="note">${r.tactical_action} · ${r.buy_speed}</div>
+      </div>
+    </div>
+    <div class="fourcol">
+      <div class="ind"><div class="lbl">RSI</div><div class="val">${r.rsi}</div></div>
+      <div class="ind"><div class="lbl">MACD</div><div class="val">${(r.macd_text||"").includes("Bullish")?"Bullish":"Bearish"}</div><div class="sub">${(r.macd_text||"").includes("rising")?"rising":"falling"}</div></div>
+      <div class="ind"><div class="lbl">200MA</div><div class="val">${cs}${Math.round(r.ma200)}</div></div>
+      <div class="ind"><div class="lbl">S/R</div><div class="val">${Math.round(r.sup)}/${Math.round(r.res)}</div></div>
+    </div>
+    <div class="bar52">52W: -20% ${r.lvl20} &nbsp; -30% ${r.lvl30} &nbsp; -40% ${r.lvl40}</div>
+    <div class="pmap">
+      <div class="h">Psychology price map</div>
+      ${pmapRows.map(([l,v,c]) => `<div class="row"><span class="l">${l}</span><span class="v" style="color:${c}">${v}</span></div>`).join("")}
+    </div>
+    <div class="obs">
+      <div class="h"><span>Volume order blocks</span><span style="color:var(--purple)">LIVE 4H+1D</span></div>
+      ${obHtml}
+    </div>
+    <div class="override" style="border-color:${ovFg}; background:${ovBg}">
+      <div class="h"><span>Order block override</span><span>3x vol min</span></div>
+      <div class="status" style="color:${ovFg}">${ovLabel}</div>
+      ${ov.status !== "DENIED"
+        ? `<div class="limit">Limit: ${cs}${ov.entry_lo.toFixed(2)} – ${cs}${ov.entry_hi.toFixed(2)} · ${ov.vol_mult.toFixed(1)}x vol</div>
+           <div class="reason">${ov.size_label || ""} ${ov.condition ? "· "+ov.condition : ""}</div>`
+        : `<div class="reason">${ov.reason || "Bot trigger required before entry"}</div>`}
+    </div>
+  </div>`;
+}
+
+function buildStagebar(results){
+  const active = new Set(results.map(r => r.stage_idx));
+  return `<div class="stagebar-label">Cycle position</div><div class="stagebar">` +
+    STAGE_NAMES.map((name,i) => {
+      const [bg,fg] = STAGE_COLORS[i];
+      const on = active.has(i);
+      return `<div class="${on?"on":""}" style="background:${bg};color:${fg}">${name}</div>`;
+    }).join("") + `</div>`;
+}
+
+function buildSummary(results){
+  const tc = results.reduce((s,r)=>s+r.core_signal,0);
+  const tt = results.reduce((s,r)=>s+r.tactical_signal,0);
+  const cap = results.length * (results[0]?.core_total + results[0]?.tactical_total || 0);
+  const trigs = results.filter(r=>r.tactical_action==="BUY").map(r=>r.symbol);
+  const ovActs = results.filter(r=>["PERMITTED","HIGH_CONVICTION","DOUBLE_CONFIRM"].includes((r.override||{}).status)).map(r=>r.symbol);
+  const items = [
+    ["Core signals today", fmtGBP(tc)],
+    ["Tactical signals today", fmtGBP(tt)],
+    ["Total capacity", fmtGBP(cap)],
+    ["OB overrides active", ovActs.length ? ovActs.join(", ") : "None"],
+    ["Tactical triggers", trigs.length ? trigs.join(", ") : "NONE — WAIT"],
+  ];
+  return items.map(([l,v]) => `<div class="card"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join("");
+}
+
+async function load(){
+  document.getElementById("status").style.display = "block";
+  document.getElementById("status").textContent = "Loading cycle_data.json…";
+  document.getElementById("grid").innerHTML = "";
+  document.getElementById("summary").style.display = "none";
+  try {
+    const res = await fetch(DATA_URL + "?t=" + Date.now());
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    const results = data.results || [];
+    if (!results.length) throw new Error("No results in feed");
+
+    document.getElementById("genAt").textContent = "Generated " + data.generated_at;
+    document.getElementById("stagebar").innerHTML = buildStagebar(results);
+    document.getElementById("summary").innerHTML = buildSummary(results);
+    document.getElementById("summary").style.display = "grid";
+    document.getElementById("grid").innerHTML = results.map(buildTile).join("");
+    document.getElementById("status").style.display = "none";
+  } catch (e) {
+    document.getElementById("status").textContent = "Couldn't load dashboard data: " + e.message;
+  }
+}
+
+load();
+setInterval(load, 15 * 60 * 1000);
+window.addEventListener("focus", load);
+</script>
+</body>
+</html>
