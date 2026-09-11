@@ -53,6 +53,24 @@
   .summary .card .lbl{color:var(--text-faint); font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:5px}
   .summary .card .val{font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:14px}
 
+  .panel{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px 18px 6px; margin-bottom:24px}
+  .panel h2{font-size:15px; font-weight:700; margin:0 0 6px}
+  .panel .intro{color:var(--text-dim); font-size:12.5px; line-height:1.6; max-width:760px; margin:0 0 14px}
+
+  .cyc-head{display:grid; grid-template-columns:140px 110px 130px 1fr; gap:10px; padding:0 0 8px; border-bottom:1px solid var(--border); color:var(--text-faint); font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em}
+  .cyc-row{display:grid; grid-template-columns:140px 110px 130px 1fr; gap:10px; align-items:center; padding:9px 0; border-bottom:1px solid var(--border)}
+  .cyc-row:last-child{border-bottom:none}
+  .cyc-stage{font-weight:600; font-size:13px}
+  .cyc-trigger{color:var(--text-dim); font-size:12px}
+  .cyc-syms{display:flex; flex-wrap:wrap; gap:5px}
+  .cyc-sym{font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600; background:var(--surface2); border:1px solid var(--border); border-radius:5px; padding:2px 7px}
+
+  @media (max-width:640px){
+    .cyc-head{display:none}
+    .cyc-row{grid-template-columns:1fr; gap:4px; padding:10px 0}
+    .cyc-trigger::before{content:"Trigger: "; color:var(--text-faint)}
+  }
+
   .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:14px}
   .tile{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px 16px; display:flex; flex-direction:column; gap:10px}
   .tile.trigger{border-color:var(--red); box-shadow:0 0 0 1px var(--red)}
@@ -119,6 +137,7 @@
   <div id="status" class="status">Loading cycle_data.json…</div>
   <div id="stagebar"></div>
   <div id="summary" class="summary" style="display:none"></div>
+  <div id="cycleSummary"></div>
   <div id="grid" class="grid"></div>
 </div>
 
@@ -134,6 +153,63 @@ const STAGE_COLORS = [
   ["#888780","#F1EFE8"],
 ];
 const DATA_URL = "https://raw.githubusercontent.com/javed-glitch/market-scan-gpt-0.01/main/cycle_data.json";
+
+// Same order/trigger text/category as cycle_bot.py's CYCLE_TABLE_ROWS +
+// CYCLE_ACTION_MAP (Telegram's text caption) — static, never computed
+// per-ticker, so mirrored here rather than added to the JSON export.
+const CYCLE_TABLE_ROWS = [
+  ["Euphoria",     ">70, <5%h"],
+  ["Thrill",       ">65, <10%h"],
+  ["Complacency",  "stalling"],
+  ["Belief",       ">55-60"],
+  ["Optimism",     ">42-48"],
+  ["Hope",         ">36"],
+  ["Anxiety",      "pullback"],
+  ["Denial",       "<42, -18%h"],
+  ["Panic",        "<36, -24%h"],
+  ["Capitulation", "<28, -40%h"],
+  ["Anger",        "<32, -32%h"],
+  ["Depression",   "<24, -48%h"],
+  ["Disbelief",    "recovering"],
+];
+const CYCLE_ACTION_MAP = {
+  Euphoria:"TRIM", Thrill:"TRIM",
+  Belief:"HOLD", Optimism:"HOLD", Hope:"HOLD", Anxiety:"HOLD", Complacency:"HOLD",
+  Panic:"ADD", Disbelief:"ADD", Denial:"ADD",
+  Capitulation:"DOUBLE DOWN", Anger:"DOUBLE DOWN", Depression:"DOUBLE DOWN",
+};
+const CAT_COLORS = {
+  TRIM:        ["var(--amber)","var(--amber-bg)"],
+  HOLD:        ["var(--text-faint)","var(--surface2)"],
+  ADD:         ["var(--blue)","var(--blue-bg)"],
+  "DOUBLE DOWN":["var(--purple)","var(--purple-bg)"],
+};
+
+function buildCycleSummary(results){
+  const byStage = {};
+  for (const r of results) (byStage[r.stage_name] = byStage[r.stage_name] || []).push(r.symbol);
+
+  const rows = CYCLE_TABLE_ROWS.map(([stage, trigger]) => {
+    const cat = CYCLE_ACTION_MAP[stage];
+    const [catFg, catBg] = CAT_COLORS[cat];
+    const syms = byStage[stage];
+    return `<div class="cyc-row">
+      <div class="cyc-stage">${stage}</div>
+      <div class="cyc-trigger mono">${trigger}</div>
+      <div class="cyc-cat"><span class="badge" style="background:${catBg};color:${catFg}">${cat}</span></div>
+      <div class="cyc-syms">${syms ? syms.map(s=>`<span class="cyc-sym">${s}</span>`).join("") : ""}</div>
+    </div>`;
+  }).join("");
+
+  return `<div class="panel">
+    <h2>Cycle summary</h2>
+    <p class="intro">Every stage top to bottom, its real trigger formula, and which category it maps to. Any ticker currently sitting in a stage is listed under it — this is the fastest way to see where everything stands at a glance, before drilling into a ticker's own card below.</p>
+    <div class="cyc-head">
+      <div>Stage</div><div>Trigger</div><div>Category</div><div>Tickers here now</div>
+    </div>
+    ${rows}
+  </div>`;
+}
 
 function fmtGBP(n){ return "£"+Math.round(n).toLocaleString(); }
 
@@ -273,6 +349,7 @@ async function load(){
     document.getElementById("stagebar").innerHTML = buildStagebar(results);
     document.getElementById("summary").innerHTML = buildSummary(results);
     document.getElementById("summary").style.display = "grid";
+    document.getElementById("cycleSummary").innerHTML = buildCycleSummary(results);
     document.getElementById("grid").innerHTML = results.map(buildTile).join("");
     document.getElementById("status").style.display = "none";
   } catch (e) {
