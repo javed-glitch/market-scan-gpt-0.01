@@ -3,10 +3,24 @@ on:
   workflow_dispatch:
   schedule:
     # Once daily only (2026-08-10 — reduced from 3x to cut Telegram noise).
-    # Mid-session: 1:00 PM ET / 18:00 UTC. Kept at +12min offset from
-    # intraday.yml's own 18:00 slot to avoid Twelve Data rate-limit
-    # collisions — both workflows share TWELVEDATA_API_KEY.
-    - cron: "12 18 * * 1-5"
+    # Moved earlier 2026-09-24: GitHub Actions' `schedule` trigger was
+    # queuing this repo's runs 2.5-4h behind nominal cron time (measured
+    # across 8-40 real runs — see chat), landing Telegram output ~9-10pm
+    # UK time regardless of the 18:12 nominal slot. Nominal time moved to
+    # 11:30 UTC aiming for an actual landing nearer market open (~14:42
+    # UTC, still +12min after intraday.yml's own 14:30 open-slot to avoid
+    # the Twelve Data rate-limit collision both workflows share via
+    # TWELVEDATA_API_KEY) -- but the delay did NOT behave as a fixed
+    # offset: earlier-nominal slots were delayed MORE (14:30 slot ~4.2h
+    # vs 20:45 slot ~2.4h), suggesting this account's scheduled-workflow
+    # queue doesn't drain until ~17:30 UTC regardless of nominal time, and
+    # jobs fire roughly in nominal order from there. That means this
+    # earlier slot could land ahead of intraday.yml's own open-slot run
+    # instead of safely after its mid-slot run as before -- unverified,
+    # treat as a live experiment. Re-check actual run times (`gh run list
+    # --workflow=cycle.yml`) after a week; adjust or revert if it collides
+    # or doesn't actually land earlier.
+    - cron: "30 11 * * 1-5"
 jobs:
   cycle_scan:
     runs-on: ubuntu-latest
