@@ -30,7 +30,7 @@ MAX_CARDS_PER_PAGE = CARDS_PER_ROW * ROWS_PER_PAGE
 
 _last_td_call = 0.0
 
-YF_SYMBOL_MAP = {"VUSA": "VUSA.L", "EQQQ": "EQQQ.L"}
+YF_SYMBOL_MAP = {"VUSA": "VUSA.L", "EQQQ": "EQQQ.L", "ISDU": "ISDU.L", "ISWD": "ISWD.L"}
 
 CURRENCY_MAP = {"VUSA": "GBP", "VUSA.L": "GBP",
                 "EQQQ": "GBP", "EQQQ.L": "GBP"}
