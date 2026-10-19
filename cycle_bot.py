@@ -30,10 +30,21 @@ MAX_CARDS_PER_PAGE = CARDS_PER_ROW * ROWS_PER_PAGE
 
 _last_td_call = 0.0
 
-YF_SYMBOL_MAP = {"VUSA": "VUSA.L", "EQQQ": "EQQQ.L", "ISDU": "ISDU.L", "ISWD": "ISWD.L"}
+YF_SYMBOL_MAP = {"VUSA": "VUSA.L", "EQQQ": "EQQQ.L", "ISDU": "ISDU.L", "ISWD": "ISWD.L", "ISUS": "ISUS.L"}
 
 CURRENCY_MAP = {"VUSA": "GBP", "VUSA.L": "GBP",
-                "EQQQ": "GBP", "EQQQ.L": "GBP"}
+                "EQQQ": "GBP", "EQQQ.L": "GBP",
+                "ISWD": "GBP", "ISWD.L": "GBP",
+                "ISUS": "GBP", "ISUS.L": "GBP"}
+
+# Yahoo quotes these in pence (GBp); converted to pounds on fetch so levels/prices read in GBP.
+PENCE_SYMBOLS = {"ISWD", "ISUS"}
+
+# Index-ETF cycle thresholds (VUSA/ISUS/ISWD only; ISDU excluded for FX) — mirrors quant-server.
+# ADD = Denial, DOUBLE DOWN tranche 1 = Anger (-6%, RSI<35), tranche 2 = Capitulation (-8%, RSI<35).
+ETF_ADD_PCT = {"VUSA": -3.0, "ISUS": -4.0, "ISWD": -4.0}
+ETF_TRANCHE1_PCT = -6.0
+ETF_TRANCHE2_PCT = -8.0
 
 def get_currency(sym): return CURRENCY_MAP.get(sym.upper(), "USD")
 def csym(sym): return "\u00a3" if get_currency(sym) == "GBP" else "USD "
@@ -159,6 +170,8 @@ def fetch_series_yahoo(symbol, interval, outputsize):
                      auto_adjust=False, progress=False,
                      threads=False, group_by="column")
     df = _normalize_yf(df)
+    if symbol.upper() in PENCE_SYMBOLS:
+        for col in ("o","h","l","c"): df[col] = df[col] / 100.0
     return df.tail(outputsize) if outputsize and len(df)>outputsize else df
 
 def fetch_series(symbol, interval, outputsize):
@@ -225,8 +238,13 @@ def vol_color(name):
 # =========================
 # CYCLE CLASSIFIER
 # =========================
-def classify_cycle(rsi_val, pct_from_high, above_200ma, hist_rising):
+def classify_cycle(rsi_val, pct_from_high, above_200ma, hist_rising, symbol=None):
     p = pct_from_high
+    if symbol and symbol.upper() in ETF_ADD_PCT:
+        if rsi_val<24 and p<-48: return "Depression",11
+        if rsi_val<35 and p<=ETF_TRANCHE2_PCT: return "Capitulation",9
+        if rsi_val<35 and p<=ETF_TRANCHE1_PCT: return "Anger",10
+        if rsi_val<40 and p<=ETF_ADD_PCT[symbol.upper()]: return "Denial",7
     if above_200ma:
         if rsi_val>70 and p>-5:   return "Euphoria",4
         if rsi_val>65 and p>-10:  return "Thrill",3
@@ -579,7 +597,7 @@ def analyze_symbol(symbol, vol_mult):
     sup   = round(float(df_4h["l"].tail(60).min()),2)
     res   = round(float(df_4h["h"].tail(60).max()),2)
 
-    sn, si  = classify_cycle(rsi_v,pct_h,above,hr)
+    sn, si  = classify_cycle(rsi_v,pct_h,above,hr,symbol)
     levels  = compute_levels(close,h52)
     speed   = buy_speed(pct_h)
     ca,cs,ta,ts,ct,tt = determine_actions(sn,si,above,speed,vol_mult)
