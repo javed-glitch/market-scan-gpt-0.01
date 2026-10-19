@@ -38,7 +38,7 @@ CURRENCY_MAP = {"VUSA": "GBP", "VUSA.L": "GBP",
                 "ISUS": "GBP", "ISUS.L": "GBP"}
 
 # Yahoo quotes these in pence (GBp); converted to pounds on fetch so levels/prices read in GBP.
-PENCE_SYMBOLS = {"ISWD", "ISUS"}
+PENCE_SYMBOLS = {"ISWD", "ISUS", "EQQQ"}
 
 # Index-ETF cycle thresholds (VUSA/ISUS/ISWD only; ISDU excluded for FX) — mirrors quant-server.
 # ADD = Denial, DOUBLE DOWN tranche 1 = Anger (-6%, RSI<35), tranche 2 = Capitulation (-8%, RSI<35).
@@ -320,6 +320,11 @@ def build_cycle_table(page_results):
         syms = by_stage.get(stage)
         if syms:
             lines.append(f"  → {', '.join(syms)}")
+    if any(r["symbol"] in ETF_ADD_PCT for r in page_results):
+        lines += ["-"*len(header),
+                  "ETF rules (VUSA/ISUS/ISWD):",
+                  "ADD -3% VUSA, -4% ISUS/ISWD, RSI<40",
+                  "DD -6% / -8%, RSI<35"]
     return "\n".join(lines)
 
 # =========================

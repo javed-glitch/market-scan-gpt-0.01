@@ -119,6 +119,15 @@
   .override .limit{font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:12px; margin-top:4px}
   .override .reason{font-size:10.5px; color:var(--text-dim); margin-top:2px}
 
+  .etfcard{grid-column:1/-1}
+  .etf-rules{color:var(--text-dim); font-size:11.5px; line-height:1.55; margin:0 0 10px}
+  .etf-scroll{overflow-x:auto}
+  .etf-tbl{width:100%; border-collapse:collapse; font-size:12px; min-width:640px}
+  .etf-tbl th{color:var(--text-faint); font-size:10px; text-transform:uppercase; letter-spacing:0.04em; font-weight:600; text-align:left; padding:0 8px 7px 0; border-bottom:1px solid var(--border)}
+  .etf-tbl td{padding:9px 8px 9px 0; border-bottom:1px solid var(--border); vertical-align:middle; font-variant-numeric:tabular-nums}
+  .etf-tbl tr:last-child td{border-bottom:none}
+  .etf-tbl .esym{font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:13px}
+  .etf-tbl .emono{font-family:'IBM Plex Mono',monospace}
   footer{text-align:center; color:var(--text-faint); font-size:11px; padding-top:30px}
 </style>
 </head>
@@ -208,6 +217,7 @@ function buildCycleSummary(results){
       <div>Stage</div><div>Trigger</div><div>Category</div><div>Tickers here now</div>
     </div>
     ${rows}
+    <p class="intro" style="margin:12px 0 10px;font-size:11.5px"><b>ETF rules (VUSA/ISUS/ISWD):</b> Denial (ADD) at −3% VUSA / −4% ISUS, ISWD with RSI&lt;40 · Anger (DD tranche 1) at −6% and Capitulation (DD tranche 2) at −8%, RSI&lt;35. The trigger column above applies to stocks, EQQQ and ISDU.</p>
   </div>`;
 }
 
@@ -307,6 +317,40 @@ function buildTile(r){
   </div>`;
 }
 
+const ETF_SYMBOLS = ["EQQQ","VUSA","ISDU","ISWD","ISUS"];
+
+function buildEtfCard(etfs){
+  if (!etfs.length) return "";
+  const rows = etfs.map(r => {
+    const [stageBg, stageFg] = STAGE_COLORS[r.stage_idx] || ["#888","#fff"];
+    const [actTxt, actBg, actFg] = actionNow(r);
+    const cs = r.csym || "$";
+    const ov = r.override || {status:"DENIED"};
+    const ovTxt = ov.status !== "DENIED" && ov.entry_lo != null ? `${cs}${ov.entry_lo.toFixed(2)} – ${cs}${ov.entry_hi.toFixed(2)} · ${ov.vol_mult.toFixed(1)}x` : "–";
+    const lv = r.levels || {};
+    const pctCol = r.pct_from_high <= -6 ? "var(--red)" : (r.pct_from_high <= -3 ? "var(--amber)" : "var(--text-dim)");
+    return `<tr>
+      <td><span class="esym">${r.symbol}</span></td>
+      <td class="emono">${cs}${r.close.toFixed(2)}</td>
+      <td class="emono" style="color:${pctCol}">${r.pct_from_high.toFixed(1)}%</td>
+      <td class="emono">${r.rsi}</td>
+      <td><span class="badge" style="background:${stageBg};color:${stageFg}">${r.stage_name}</span></td>
+      <td><span class="badge" style="background:${actBg};color:${actFg}">${actTxt}</span></td>
+      <td class="emono">${lv.entry != null ? cs+lv.entry.toFixed(2) : "–"}</td>
+      <td class="emono">${cs}${Math.round(r.ma200)} ${r.above_200ma ? "↑" : "↓"}</td>
+      <td class="emono" style="font-size:11px">${ovTxt}</td>
+    </tr>`;
+  }).join("");
+  return `<div class="tile etfcard">
+    <div class="t-head"><div><span class="sym">ETFs</span><span class="px" style="font-size:12px;color:var(--text-faint)">Core holdings &amp; comparators</span></div></div>
+    <div class="etf-rules"><b>ETF rules (VUSA / ISUS / ISWD):</b> ADD at −3% (VUSA) or −4% (ISUS, ISWD) off the 52W high with RSI&lt;40 · DOUBLE DOWN tranche 1 at −6% and tranche 2 at −8%, RSI&lt;35. EQQQ and ISDU use the standard stage triggers. RSI here is 4H.</div>
+    <div class="etf-scroll"><table class="etf-tbl">
+      <thead><tr><th>ETF</th><th>Price</th><th>Off 52W</th><th>RSI</th><th>Stage</th><th>Action</th><th>Add zone</th><th>200MA</th><th>Block override</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+  </div>`;
+}
+
 function buildStagebar(results){
   const active = new Set(results.map(r => r.stage_idx));
   return `<div class="stagebar-label">Cycle position</div><div class="stagebar">` +
@@ -350,7 +394,9 @@ async function load(){
     document.getElementById("summary").innerHTML = buildSummary(results);
     document.getElementById("summary").style.display = "grid";
     document.getElementById("cycleSummary").innerHTML = buildCycleSummary(results);
-    document.getElementById("grid").innerHTML = results.map(buildTile).join("");
+    const etfs = ETF_SYMBOLS.map(s => results.find(r => r.symbol === s)).filter(Boolean);
+    const others = results.filter(r => !ETF_SYMBOLS.includes(r.symbol));
+    document.getElementById("grid").innerHTML = buildEtfCard(etfs) + others.map(buildTile).join("");
     document.getElementById("status").style.display = "none";
   } catch (e) {
     document.getElementById("status").textContent = "Couldn't load dashboard data: " + e.message;
