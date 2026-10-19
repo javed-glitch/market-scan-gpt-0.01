@@ -40,6 +40,9 @@ CURRENCY_MAP = {"VUSA": "GBP", "VUSA.L": "GBP",
 # Yahoo quotes these in pence (GBp); converted to pounds on fetch so levels/prices read in GBP.
 PENCE_SYMBOLS = {"ISWD", "ISUS", "EQQQ"}
 
+# Shown together on their own Telegram page, after the stocks.
+ETF_PAGE_SYMBOLS = {"EQQQ", "VUSA", "ISDU", "ISWD", "ISUS"}
+
 # Index-ETF cycle thresholds (VUSA/ISUS/ISWD only; ISDU excluded for FX) — mirrors quant-server.
 # ADD = Denial, DOUBLE DOWN tranche 1 = Anger (-6%, RSI<35), tranche 2 = Capitulation (-8%, RSI<35).
 ETF_ADD_PCT = {"VUSA": -3.0, "ISUS": -4.0, "ISWD": -4.0}
@@ -1072,7 +1075,11 @@ def main():
     except Exception as e:
         print(f"cycle_data.json export failed (non-fatal): {repr(e)}")
 
-    pages  = list(chunk_results(results, MAX_CARDS_PER_PAGE))
+    # ETFs get their own Telegram page(s) instead of mixing with stocks.
+    stock_results = [r for r in results if r["symbol"] not in ETF_PAGE_SYMBOLS]
+    etf_results   = [r for r in results if r["symbol"] in ETF_PAGE_SYMBOLS]
+    pages  = (list(chunk_results(stock_results, MAX_CARDS_PER_PAGE)) +
+              list(chunk_results(etf_results, MAX_CARDS_PER_PAGE)))
     trigs  = [r["symbol"] for r in results if r["tactical_action"]=="BUY"]
     ov_act = [r["symbol"] for r in results
               if r.get("override",{}).get("status") in
