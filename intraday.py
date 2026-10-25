@@ -248,7 +248,7 @@ def send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, r
                         high_52w, pct_from, lvl_20, lvl_30, lvl_40, vol_regime, vol_mult,
                         vol_current, vol_avg20, vol_ratio, up_vol, down_vol, atr14,
                         efficiency_ratio, adx14, trend_regime,
-                        rsi_trend, rsi_trend_prior, macd_hist_trend, macd_hist_trend_prior):
+                        rsi_trend, rsi_trend_prior, macd_hist_trend, macd_hist_trend_prior, sma5=None):
     """
     Forwards raw 4H structure (not GPT's interpretation) to quant-server so Claude
     can use it as context. Best-effort only — never raises, never touches
@@ -294,6 +294,7 @@ def send_price_context(symbol, close, rsi_val, macd_line, sig_line, hist, sup, r
                 "up_vol": round(float(up_vol), 0),
                 "down_vol": round(float(down_vol), 0),
             },
+            "sma5": ({k: (round(v, 4) if isinstance(v, float) else v) for k, v in sma5.items()} if sma5 else None),
             "timestamp": utc_now().isoformat(),
         }
         headers = {"Content-Type": "application/json"}
@@ -534,6 +535,74 @@ def compute_atr(daily_df: pd.DataFrame, period: int = 14) -> float:
 
 
 # =========================
+# 5-DAY SMA + RECLAIM (daily closes) -- added 2026-10-25
+# =========================
+def compute_sma5(daily_df: pd.DataFrame):
+    """
+    5-day SMA of COMPLETED daily closes, plus the "falling knife has stopped"
+    reclaim test: the latest completed close is above its 5d SMA after at least
+    3 consecutive closes below theirs. A daily bar for today is dropped until the
+    US cash session has closed (16:10 ET), so a partial bar never counts as a close.
+    reclaim_level = the price tomorrow's close must beat to finish above tomorrow's
+    5d SMA (tomorrow's SMA = (last 4 closes + tomorrow) / 5, so the line is their mean).
+    Informational only -- nothing here changes Buy/Sell/size logic.
+    """
+    from zoneinfo import ZoneInfo
+    now_ny = utc_now().astimezone(ZoneInfo("America/New_York"))
+    d = daily_df
+    if d.index[-1].date() == now_ny.date() and (now_ny.hour, now_ny.minute) < (16, 10):
+        d = d.iloc[:-1]
+    c, lo = d["c"], d["l"]
+    if len(c) < 12:
+        raise RuntimeError(f"Not enough completed daily bars for SMA5: {len(c)}")
+    sma = c.rolling(5).mean()
+    above = (c > sma)[sma.notna()]
+    cur_above = bool(above.iloc[-1])
+    streak = 0
+    for v in reversed(above.tolist()):
+        if bool(v) == cur_above:
+            streak += 1
+        else:
+            break
+    prior_below = 0
+    for v in reversed(above.iloc[:-1].tolist()):
+        if not v:
+            prior_below += 1
+        else:
+            break
+    reclaim = cur_above and prior_below >= 3
+    rsi_d = rsi_wilder(c, 14)
+    reasons = [f"{prior_below} straight closes below the 5d SMA first"]
+    if lo.iloc[-1] > lo.iloc[-2]:
+        reasons.append("higher low than yesterday")
+    if rsi_d.iloc[-1] > rsi_d.iloc[-2]:
+        reasons.append(f"daily RSI rising {rsi_d.iloc[-2]:.0f}->{rsi_d.iloc[-1]:.0f}")
+    last = float(c.iloc[-1])
+    return {
+        "asof": c.index[-1].date().isoformat(),
+        "sma5": float(sma.iloc[-1]),
+        "last_close": last,
+        "pct_vs_sma": (last / float(sma.iloc[-1]) - 1.0) * 100.0,
+        "state": "ABOVE" if cur_above else "BELOW",
+        "streak_days": streak,
+        "reclaim": reclaim,
+        "prior_below_days": prior_below,
+        "reclaim_reason": "; ".join(reasons) if reclaim else None,
+        "tomorrow_line": float(c.iloc[-4:].mean()),
+    }
+
+
+def sma5_lines(sm):
+    if not sm:
+        return []
+    out = [f"5d SMA: {sm['sma5']:.2f} ({sm['pct_vs_sma']:+.1f}%) | {sm['streak_days']}d {sm['state'].lower()} | "
+           f"close above {sm['tomorrow_line']:.2f} tomorrow to finish above it"]
+    if sm["reclaim"]:
+        out.append(f"🟢 5d SMA RECLAIM (daily close, {sm['asof']}): {sm['reclaim_reason']}")
+    return out
+
+
+# =========================
 # REGIME (Efficiency Ratio + ADX) — added 2026-08-27
 # =========================
 def compute_efficiency_ratio(daily_df: pd.DataFrame, period: int = 20) -> float:
@@ -645,7 +714,7 @@ def trend_label(series: pd.Series, lookback: int = TREND_LOOKBACK_BARS, flat_pct
 # =========================
 # CHARTS
 # =========================
-def make_chart(symbol: str, tf: str, df_4h: pd.DataFrame, sup: float, res: float, out_path: str):
+def make_chart(symbol: str, tf: str, df_4h: pd.DataFrame, sup: float, res: float, out_path: str, df_1d=None):
     d = df_4h.tail(CHART_BARS).copy()
     close = d["c"]
 
@@ -661,6 +730,12 @@ def make_chart(symbol: str, tf: str, df_4h: pd.DataFrame, sup: float, res: float
 
     ax1 = plt.subplot(3, 1, 1)
     ax1.plot(x, close)
+    if df_1d is not None:
+        # 5d SMA known at the start of each day = mean of the previous 5 completed closes; held flat across that day
+        sma_prior = df_1d["c"].rolling(5).mean().shift(1)
+        line = sma_prior.reindex(d.index.normalize(), method="ffill").values
+        ax1.plot(x, line, color="tab:orange", linewidth=1.6, label="5d SMA")
+        ax1.legend(loc="upper left", fontsize=8)
     ax1.axhline(sup, linestyle="--")
     ax1.axhline(res, linestyle="--")
     ax1.set_title(f"{symbol} — {tf} | Close + S/R")
@@ -984,6 +1059,11 @@ def main():
             volume_dir_simple = volume_direction_simple(up_vol, down_vol)
 
             df_1d = fetch_1d(symbol)
+            try:
+                sma5 = compute_sma5(df_1d)
+            except Exception as e:
+                print(f"[sma5] {symbol}: {e!r}")
+                sma5 = None
             high_52w, pct_from, lvl_20, lvl_30, lvl_40 = compute_52w(df_1d, close)
             atr14 = compute_atr(df_1d, 14)
             # Named trend_regime, NOT regime -- that name is already the
@@ -1030,6 +1110,8 @@ def main():
                 "trend_regime": trend_regime,
                 "rsi_trend": rsi_trend,
                 "macd_hist_trend": macd_hist_trend,
+                "sma5": sma5,
+                "df_1d": df_1d,
                 "g": g,
                 "trading_bias": trading_bias,
                 "confidence": conf,
@@ -1042,7 +1124,8 @@ def main():
                                 high_52w, pct_from, lvl_20, lvl_30, lvl_40, regime, mult,
                                 vol_current, vol_avg20, vol_ratio, up_vol, down_vol, atr14,
                                 efficiency_ratio, adx14, trend_regime,
-                                rsi_trend, rsi_trend_prior, macd_hist_trend, macd_hist_trend_prior)
+                                rsi_trend, rsi_trend_prior, macd_hist_trend, macd_hist_trend_prior,
+                                sma5=sma5)
 
             # "Entry advised" = Buy with confidence >= threshold, OR any Sell
             # bias at all — trim isn't confidence-gated, matching /trim's
@@ -1079,6 +1162,7 @@ def main():
             lines.append(f"🔷 {r['symbol']} | {r['investor_action']} | {r['confidence']}%")
             lines.append(f"Setup: {tag}")
             lines.append(f"Close: {r['close']:.2f}")
+            lines.extend(sma5_lines(r.get("sma5")))
             lines.append(f"S: {r['sup']:.2f} | R: {r['res']:.2f}")
             lines.append(f"From 52W High: {r['pct_from']:.1f}%")
             # Show the fixed pullback levels (explicitly)
@@ -1129,12 +1213,13 @@ def main():
 
         symbol = r["symbol"]
         chart_path = f"charts/{symbol}_4H.png"
-        make_chart(symbol, "4H", r["df_4h"], r["sup"], r["res"], chart_path)
+        make_chart(symbol, "4H", r["df_4h"], r["sup"], r["res"], chart_path, df_1d=r.get("df_1d"))
 
         caption = (
             f"🔷 {symbol} (4H)\n\n"
             f"Market Regime: {regime} ({vol_sym} {vol_val:.2f}) | Tranche Mult: {mult:.2f}x\n\n"
             f"Close: {r['close']:.2f}\n"
+            + "".join(l + "\n" for l in sma5_lines(r.get("sma5"))) +
             f"RSI: {r['rsi']:.1f}\n"
             f"MACD: {r['macd_text']}\n"
             f"Volume: {r['volume_text']}\n"
