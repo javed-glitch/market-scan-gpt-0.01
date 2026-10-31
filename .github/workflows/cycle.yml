@@ -43,7 +43,11 @@ jobs:
           pip install requests pandas numpy matplotlib yfinance
       - name: Run cycle dashboard
         env:
-          SYMBOLS: NVDA,AMAT,PLTR,TSLA,ZETA,BE,ANET,AVGO,CDNS,AMZN,CEG,CRWV,NBIS,TER,ASML,MRVL,EQQQ,VUSA,ISDU,ISWD,ISUS
+          # Symbols now come from the shared hco-symbols registry (feed "cycle").
+          # SYMBOLS here would override it; SYMBOLS_FALLBACK is used only if the
+          # registry is unreachable or invalid. Migrated 2026-10-31 (tag pre-registry-20261031).
+          SYMBOLS_FEED: cycle
+          SYMBOLS_FALLBACK: TSLA,PLTR,NVDA,ZETA,AMAT,AMD,MU,AVGO,GOOGL,APP,BE,MRVL,VUSA,ISUS,ISWD,EQQQ
           CAPITAL_PER_TICKER: "3000"
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.CYCLE_TELEGRAM_BOT_TOKEN }}

@@ -2,6 +2,7 @@ import html
 import io
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone
 
@@ -17,7 +18,38 @@ import yfinance as yf
 # =========================
 # CONFIG
 # =========================
-SYMBOLS            = [s.strip().upper() for s in os.getenv("SYMBOLS","TSLA,NVDA,PLTR,VUSA").split(",") if s.strip()]
+def _csv(v):
+    return [s.strip().upper() for s in v.split(",") if s.strip()]
+
+def load_symbols():
+    """SYMBOLS env, if set, wins (explicit override, unchanged behaviour).
+    Otherwise the shared hco-symbols registry, keeping entries whose `feeds`
+    include SYMBOLS_FEED, in registry order (card order and paging follow it).
+    Any fetch/validation problem falls back to SYMBOLS_FALLBACK, so a registry
+    outage can never produce an empty or partial dashboard."""
+    explicit = os.getenv("SYMBOLS", "").strip()
+    if explicit:
+        print("symbols: from SYMBOLS env")
+        return _csv(explicit)
+    fallback = _csv(os.getenv("SYMBOLS_FALLBACK", "TSLA,NVDA,PLTR,VUSA"))
+    url  = os.getenv("SYMBOLS_URL", "https://javed-glitch.github.io/hco-symbols/symbols.json")
+    feed = os.getenv("SYMBOLS_FEED", "cycle")
+    try:
+        reg = requests.get(url, timeout=15, headers={"Cache-Control": "no-cache"}).json()
+        out = []
+        for e in reg["symbols"]:
+            sym = str(e.get("sym", "")).strip().upper()
+            if feed in (e.get("feeds") or []) and re.fullmatch(r"[A-Z0-9.\-]{1,10}", sym) and sym not in out:
+                out.append(sym)
+        if not out or len(out) > 30:
+            raise ValueError(f"registry gave {len(out)} symbols for feed {feed!r}")
+        print(f"symbols: from registry ({len(out)}): {','.join(out)}")
+        return out
+    except Exception as ex:
+        print(f"symbols: registry unusable ({ex!r}); using fallback list")
+        return fallback
+
+SYMBOLS            = load_symbols()
 CAPITAL_PER_TICKER = float(os.getenv("CAPITAL_PER_TICKER","3000"))
 TD_API_KEY         = os.getenv("TWELVEDATA_API_KEY","").strip()
 TELEGRAM_TOKEN     = os.getenv("TELEGRAM_BOT_TOKEN","").strip()
