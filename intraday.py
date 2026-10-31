@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import json
 import requests
@@ -15,7 +16,51 @@ from openai import OpenAI
 # =========================
 # CONFIG
 # =========================
-SYMBOLS = [s.strip().upper() for s in os.getenv("SYMBOLS", "NVDA").split(",") if s.strip()]
+def _csv(v):
+    return [x.strip().upper() for x in v.split(",") if x.strip()]
+
+_CACHE_PATH = os.getenv("SYMBOLS_CACHE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "symbols_last_good.json"))
+
+def _feed_list(reg, feed):
+    out = []
+    for e in reg["symbols"]:
+        sym = str(e.get("sym", "")).strip().upper()
+        if feed in (e.get("feeds") or []) and re.fullmatch(r"[A-Z0-9.\-]{1,10}", sym) and sym not in out:
+            out.append(sym)
+    return out if 0 < len(out) <= 30 else None
+
+def load_symbols():
+    # SYMBOLS env wins (manual run); else live registry; else last good copy; else abort
+    explicit = _csv(os.getenv("SYMBOLS", ""))
+    if explicit:
+        print(f"symbols: SYMBOLS env ({len(explicit)}): {','.join(explicit)}")
+        return explicit
+    feed = os.getenv("SYMBOLS_FEED", "intraday")
+    url = os.getenv("SYMBOLS_URL", "https://javed-glitch.github.io/hco-symbols/symbols.json")
+    def live():
+        return requests.get(url, timeout=15, headers={"Cache-Control": "no-cache"}).json()
+    def cached():
+        return json.load(open(_CACHE_PATH))
+    for name, get in (("registry", live), ("last good copy", cached)):
+        try:
+            reg = get()
+            syms = _feed_list(reg, feed)
+            if not syms:
+                raise ValueError(f"no usable symbols for feed {feed!r}")
+            if name == "registry":
+                try:
+                    new = json.dumps(reg, indent=1, sort_keys=True) + "\n"
+                    if not os.path.exists(_CACHE_PATH) or open(_CACHE_PATH).read() != new:
+                        open(_CACHE_PATH, "w").write(new)
+                except Exception as ex:
+                    print(f"symbols: could not save last good copy ({ex!r})")
+            print(f"symbols: {name} ({len(syms)}): {','.join(syms)}")
+            return syms
+        except Exception as ex:
+            print(f"symbols: {name} unusable ({ex!r})")
+    raise RuntimeError("no symbol source available")
+
+SYMBOLS = load_symbols()
 ETF_SYMBOLS = {s.strip().upper() for s in os.getenv("ETF_SYMBOLS", "QQQ").split(",") if s.strip()}
 
 TD_API_KEY = os.getenv("TWELVEDATA_API_KEY", "").strip()
