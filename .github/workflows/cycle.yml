@@ -43,11 +43,12 @@ jobs:
           pip install requests pandas numpy matplotlib yfinance
       - name: Run cycle dashboard
         env:
-          # Symbols now come from the shared hco-symbols registry (feed "cycle").
-          # SYMBOLS here would override it; SYMBOLS_FALLBACK is used only if the
-          # registry is unreachable or invalid. Migrated 2026-10-31 (tag pre-registry-20261031).
+          # Symbols and per-symbol facts (yahoo code, currency, pence, etf) come from the
+          # shared hco-symbols registry (feed "cycle"). Setting SYMBOLS here would override the
+          # list only. If the registry is down the bot uses symbols_last_good.json, which each
+          # successful run refreshes and this workflow commits. Tags: pre-registry-20261031,
+          # pre-registry-meta-20261031.
           SYMBOLS_FEED: cycle
-          SYMBOLS_FALLBACK: TSLA,PLTR,NVDA,ZETA,AMAT,AMD,MU,AVGO,GOOGL,APP,BE,MRVL,VUSA,ISUS,ISWD,EQQQ
           CAPITAL_PER_TICKER: "3000"
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.CYCLE_TELEGRAM_BOT_TOKEN }}
@@ -55,14 +56,14 @@ jobs:
           TD_MIN_SECONDS_BETWEEN_CALLS: "11"
         run: |
           python cycle_bot.py
-      - name: Commit cycle_data.json (web dashboard export, 2026-09-11)
+      - name: Commit cycle_data.json and symbols_last_good.json
         run: |
-          if [ -f cycle_data.json ] && [ -n "$(git status --porcelain -- cycle_data.json)" ]; then
+          if [ -n "$(git status --porcelain -- cycle_data.json symbols_last_good.json)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add cycle_data.json
-            git commit -m "Update cycle_data.json [skip ci]"
+            git add cycle_data.json symbols_last_good.json 2>/dev/null || true
+            git commit -m "Update cycle_data.json / symbols_last_good.json [skip ci]"
             git push
           else
-            echo "cycle_data.json unchanged or missing — nothing to commit."
+            echo "cycle_data.json and symbols_last_good.json unchanged — nothing to commit."
           fi

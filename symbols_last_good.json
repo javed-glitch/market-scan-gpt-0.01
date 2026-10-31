@@ -1,0 +1,171 @@
+{
+ "groups": [
+  "Satellites",
+  "Swing-eligible",
+  "Watch",
+  "Core"
+ ],
+ "symbols": [
+  {
+   "ccy": "$",
+   "feeds": [
+    "pm",
+    "cycle"
+   ],
+   "group": "Satellites",
+   "sym": "TSLA"
+  },
+  {
+   "ccy": "$",
+   "feeds": [
+    "pm",
+    "cycle"
+   ],
+   "group": "Satellites",
+   "sym": "PLTR"
+  },
+  {
+   "ccy": "$",
+   "feeds": [
+    "pm",
+    "cycle"
+   ],
+   "group": "Satellites",
+   "sym": "NVDA"
+  },
+  {
+   "ccy": "$",
+   "feeds": [
+    "pm",
+    "cycle"
+   ],
+   "group": "Satellites",
+   "sym": "ZETA"
+  },
+  {
+   "ccy": "$",
+   "feeds": [
+    "pm",
+    "cycle"
+   ],
+   "group": "Satellites",
+   "sym": "AMAT"
+  },
+  {
+   "ccy": "$",
+   "feeds": [
+    "pm",
+    "cycle"
+   ],
+   "group": "Swing-eligible",
+   "sym": "AMD"
+  },
+  {
+   "ccy": "$",
+   "feeds": [
+    "pm",
+    "cycle"
+   ],
+   "group": "Swing-eligible",
+   "sym": "MU"
+  },
+  {
+   "ccy": "$",
+   "feeds": [
+    "pm",
+    "cycle"
+   ],
+   "group": "Swing-eligible",
+   "sym": "AVGO"
+  },
+  {
+   "ccy": "$",
+   "feeds": [
+    "pm"
+   ],
+   "group": "Swing-eligible",
+   "sym": "META"
+  },
+  {
+   "ccy": "$",
+   "feeds": [
+    "pm",
+    "cycle"
+   ],
+   "group": "Swing-eligible",
+   "sym": "GOOGL"
+  },
+  {
+   "ccy": "$",
+   "feeds": [
+    "pm",
+    "cycle"
+   ],
+   "group": "Watch",
+   "sym": "APP"
+  },
+  {
+   "ccy": "$",
+   "feeds": [
+    "cycle"
+   ],
+   "group": "Watch",
+   "sym": "BE"
+  },
+  {
+   "ccy": "$",
+   "feeds": [
+    "cycle"
+   ],
+   "group": "Watch",
+   "sym": "MRVL"
+  },
+  {
+   "ccy": "\u00a3",
+   "etf": true,
+   "feeds": [
+    "pm",
+    "cycle"
+   ],
+   "group": "Core",
+   "sym": "VUSA",
+   "yahoo": "VUSA.L"
+  },
+  {
+   "ccy": "\u00a3",
+   "etf": true,
+   "feeds": [
+    "pm",
+    "cycle"
+   ],
+   "group": "Core",
+   "pence": true,
+   "sym": "ISUS",
+   "yahoo": "ISUS.L"
+  },
+  {
+   "ccy": "\u00a3",
+   "etf": true,
+   "feeds": [
+    "pm",
+    "cycle"
+   ],
+   "group": "Core",
+   "pence": true,
+   "sym": "ISWD",
+   "yahoo": "ISWD.L"
+  },
+  {
+   "ccy": "\u00a3",
+   "etf": true,
+   "feeds": [
+    "cycle"
+   ],
+   "group": "Core",
+   "pence": true,
+   "sym": "EQQQ",
+   "yahoo": "EQQQ.L"
+  }
+ ],
+ "updated": "2026-10-31"
+}

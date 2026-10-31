@@ -21,35 +21,55 @@ import yfinance as yf
 def _csv(v):
     return [s.strip().upper() for s in v.split(",") if s.strip()]
 
-def load_symbols():
-    """SYMBOLS env, if set, wins (explicit override, unchanged behaviour).
-    Otherwise the shared hco-symbols registry, keeping entries whose `feeds`
-    include SYMBOLS_FEED, in registry order (card order and paging follow it).
-    Any fetch/validation problem falls back to SYMBOLS_FALLBACK, so a registry
-    outage can never produce an empty or partial dashboard."""
-    explicit = os.getenv("SYMBOLS", "").strip()
-    if explicit:
-        print("symbols: from SYMBOLS env")
-        return _csv(explicit)
-    fallback = _csv(os.getenv("SYMBOLS_FALLBACK", "TSLA,NVDA,PLTR,VUSA"))
-    url  = os.getenv("SYMBOLS_URL", "https://javed-glitch.github.io/hco-symbols/symbols.json")
-    feed = os.getenv("SYMBOLS_FEED", "cycle")
-    try:
-        reg = requests.get(url, timeout=15, headers={"Cache-Control": "no-cache"}).json()
-        out = []
-        for e in reg["symbols"]:
-            sym = str(e.get("sym", "")).strip().upper()
-            if feed in (e.get("feeds") or []) and re.fullmatch(r"[A-Z0-9.\-]{1,10}", sym) and sym not in out:
-                out.append(sym)
-        if not out or len(out) > 30:
-            raise ValueError(f"registry gave {len(out)} symbols for feed {feed!r}")
-        print(f"symbols: from registry ({len(out)}): {','.join(out)}")
-        return out
-    except Exception as ex:
-        print(f"symbols: registry unusable ({ex!r}); using fallback list")
-        return fallback
+# Registry (hco-symbols) is the single source for the symbol list AND per-symbol facts
+# (yahoo code, currency, pence, etf). Order of trust: live registry -> last good copy
+# written by the previous successful run (symbols_last_good.json, committed by the
+# workflow) -> a minimal built-in default. SYMBOLS env, if set, overrides the LIST only.
+_LAST_RESORT = {"symbols": [
+    {"sym": "TSLA", "feeds": ["cycle"]}, {"sym": "NVDA", "feeds": ["cycle"]},
+    {"sym": "PLTR", "feeds": ["cycle"]},
+    {"sym": "VUSA", "feeds": ["cycle"], "yahoo": "VUSA.L", "ccy": "\u00a3", "etf": True}]}
+_CACHE_PATH = os.getenv("SYMBOLS_CACHE",
+                        os.path.join(os.path.dirname(os.path.abspath(__file__)), "symbols_last_good.json"))
 
-SYMBOLS            = load_symbols()
+def _feed_list(reg, feed):
+    out = []
+    for e in reg["symbols"]:
+        sym = str(e.get("sym", "")).strip().upper()
+        if feed in (e.get("feeds") or []) and re.fullmatch(r"[A-Z0-9.\-]{1,10}", sym) and sym not in out:
+            out.append(sym)
+    return out if 0 < len(out) <= 30 else None
+
+def load_config():
+    explicit = _csv(os.getenv("SYMBOLS", ""))
+    feed = os.getenv("SYMBOLS_FEED", "cycle")
+    url  = os.getenv("SYMBOLS_URL", "https://javed-glitch.github.io/hco-symbols/symbols.json")
+    def live():
+        return requests.get(url, timeout=15, headers={"Cache-Control": "no-cache"}).json()
+    def cached():
+        return json.load(open(_CACHE_PATH))
+    for name, get in (("registry", live), ("last good copy", cached), ("built-in default", lambda: _LAST_RESORT)):
+        try:
+            reg = get()
+            syms = explicit or _feed_list(reg, feed)
+            if not syms:
+                raise ValueError(f"no usable symbols for feed {feed!r}")
+            if name == "registry":
+                try:
+                    new = json.dumps(reg, indent=1, sort_keys=True) + "\n"
+                    if not os.path.exists(_CACHE_PATH) or open(_CACHE_PATH).read() != new:
+                        open(_CACHE_PATH, "w").write(new)
+                except Exception as ex:
+                    print(f"symbols: could not save last good copy ({ex!r})")
+            print(f"symbols: {'SYMBOLS env' if explicit else name} ({len(syms)}): {','.join(syms)}"
+                  + (f" [facts from {name}]" if explicit else ""))
+            return reg, syms
+        except Exception as ex:
+            print(f"symbols: {name} unusable ({ex!r})")
+    raise RuntimeError("no symbol source available")
+
+_REG, SYMBOLS = load_config()
+_META = {str(e["sym"]).strip().upper(): e for e in _REG["symbols"] if isinstance(e, dict) and e.get("sym")}
 CAPITAL_PER_TICKER = float(os.getenv("CAPITAL_PER_TICKER","3000"))
 TD_API_KEY         = os.getenv("TWELVEDATA_API_KEY","").strip()
 TELEGRAM_TOKEN     = os.getenv("TELEGRAM_BOT_TOKEN","").strip()
@@ -62,20 +82,23 @@ MAX_CARDS_PER_PAGE = CARDS_PER_ROW * ROWS_PER_PAGE
 
 _last_td_call = 0.0
 
-YF_SYMBOL_MAP = {"VUSA": "VUSA.L", "EQQQ": "EQQQ.L", "ISDU": "ISDU.L", "ISWD": "ISWD.L", "ISUS": "ISUS.L"}
+# Per-symbol facts come from the registry (see _META above).
+# Symbols with a Yahoo code are fetched from Yahoo (London ETFs); the rest from Twelve Data.
+YF_SYMBOL_MAP = {s: e["yahoo"] for s, e in _META.items() if e.get("yahoo")}
 
-CURRENCY_MAP = {"VUSA": "GBP", "VUSA.L": "GBP",
-                "EQQQ": "GBP", "EQQQ.L": "GBP",
-                "ISWD": "GBP", "ISWD.L": "GBP",
-                "ISUS": "GBP", "ISUS.L": "GBP"}
+CURRENCY_MAP = {}
+for _s, _e in _META.items():
+    if _e.get("ccy") == "\u00a3":
+        CURRENCY_MAP[_s] = "GBP"
+        if _e.get("yahoo"): CURRENCY_MAP[_e["yahoo"].upper()] = "GBP"
 
 # Yahoo quotes these in pence (GBp); converted to pounds on fetch so levels/prices read in GBP.
-PENCE_SYMBOLS = {"ISWD", "ISUS", "EQQQ"}
+PENCE_SYMBOLS = {s for s, e in _META.items() if e.get("pence")}
 
 # Shown together on their own Telegram page, after the stocks.
-ETF_PAGE_SYMBOLS = {"EQQQ", "VUSA", "ISDU", "ISWD", "ISUS"}
+ETF_PAGE_SYMBOLS = {s for s, e in _META.items() if e.get("etf")}
 
-# Index-ETF cycle thresholds (VUSA/ISUS/ISWD only; ISDU excluded for FX) — mirrors quant-server.
+# Index-ETF cycle thresholds (VUSA/ISUS/ISWD only) — mirrors quant-server.
 # ADD = Denial, DOUBLE DOWN tranche 1 = Anger (-6%, RSI<35), tranche 2 = Capitulation (-8%, RSI<35).
 ETF_ADD_PCT = {"VUSA": -3.0, "ISUS": -4.0, "ISWD": -4.0}
 ETF_TRANCHE1_PCT = -6.0
