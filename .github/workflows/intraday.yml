@@ -13,6 +13,8 @@ jobs:
   intraday:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
       - name: Checkout intraday branch
         uses: actions/checkout@v7
@@ -28,7 +30,7 @@ jobs:
           pip install -r requirements.txt
       - name: Run intraday (Order Setter)
         env:
-          SYMBOLS: NVDA,AMAT,PLTR,TSLA,ZETA,AVGO
+          SYMBOLS_FEED: intraday
           TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-4o-mini
@@ -47,6 +49,17 @@ jobs:
           CHART_BARS: "140"
         run: |
           python intraday.py
+      - name: Save last good symbol list
+        run: |
+          if [ -n "$(git status --porcelain symbols_last_good.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add symbols_last_good.json
+            git commit -m "Update symbols_last_good.json [skip ci]"
+            git push
+          else
+            echo "symbols_last_good.json unchanged — nothing to commit."
+          fi
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v7
