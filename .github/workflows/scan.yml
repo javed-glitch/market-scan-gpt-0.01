@@ -2,9 +2,10 @@ name: Market Scan (2H/4H/1D/1W) -> GPT (Logged)
 
 on:
   workflow_dispatch:
-  schedule:
-    # Weekdays at 18:10 UTC
-    # - cron: "10 18 * * 1-5"
+  # Scheduled run is switched off. An empty `schedule:` key makes this file invalid
+  # (every push shows a failed run), so re-add the whole block when re-enabling:
+  # schedule:
+  #   - cron: "10 18 * * 1-5"   # weekdays 18:10 UTC
 
 jobs:
   scan:
