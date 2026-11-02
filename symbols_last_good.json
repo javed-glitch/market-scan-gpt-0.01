@@ -59,8 +59,7 @@
   {
    "ccy": "$",
    "feeds": [
-    "cycle",
-    "options"
+    "cycle"
    ],
    "group": "Swing-eligible",
    "sym": "AMD"
@@ -68,8 +67,7 @@
   {
    "ccy": "$",
    "feeds": [
-    "cycle",
-    "options"
+    "cycle"
    ],
    "group": "Swing-eligible",
    "sym": "MU"
@@ -87,7 +85,9 @@
   {
    "ccy": "$",
    "feeds": [
-    "cycle"
+    "cycle",
+    "options",
+    "intraday"
    ],
    "group": "Swing-eligible",
    "sym": "GOOGL"
@@ -96,7 +96,8 @@
    "ccy": "$",
    "feeds": [
     "cycle",
-    "options"
+    "options",
+    "intraday"
    ],
    "group": "Watch",
    "sym": "APP"
@@ -104,7 +105,9 @@
   {
    "ccy": "$",
    "feeds": [
-    "cycle"
+    "cycle",
+    "options",
+    "intraday"
    ],
    "group": "Watch",
    "sym": "BE"
