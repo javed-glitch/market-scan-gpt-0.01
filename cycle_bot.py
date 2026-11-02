@@ -257,6 +257,17 @@ def rsi_wilder(close, period=14):
     al = (-d.clip(upper=0)).ewm(alpha=1/period, adjust=False).mean()
     return 100 - (100/(1 + ag/al.replace(0, np.nan)))
 
+def fell_gate(df_1d, symbol):
+    """Quant's oversold gate on DAILY closes: RSI under 35 (40 for the index ETFs)
+    at some point in the last 10 sessions. Display only: nothing in the cycle
+    stage, actions or alerts reads this."""
+    thr = 40.0 if symbol.upper() in ETF_ADD_PCT else 35.0
+    r = rsi_wilder(df_1d["c"], 14).dropna().tail(10)
+    if r.empty:
+        return None, None, thr
+    mn = float(r.min())
+    return bool(mn < thr), round(mn, 1), thr
+
 def ema(s, span): return s.ewm(span=span, adjust=False).mean()
 
 def macd_calc(close, fast=12, slow=26, signal=9):
@@ -681,6 +692,10 @@ def analyze_symbol(symbol, vol_mult):
     order_blocks = compute_order_blocks(df_4h_v, df_1d_v, close, n=4)
 
     deployed = get_deployed(symbol)
+    try:
+        fell, fell_min_rsi, fell_thr = fell_gate(df_1d, symbol)
+    except Exception:
+        fell, fell_min_rsi, fell_thr = None, None, None
     result = {
         "symbol":    symbol,
         "close":     close,
@@ -708,6 +723,9 @@ def analyze_symbol(symbol, vol_mult):
         "order_blocks": order_blocks,
         "currency":     get_currency(symbol),
         "csym":         csym(symbol),
+        "fell":         fell,
+        "fell_min_rsi": fell_min_rsi,
+        "fell_thr":     fell_thr,
     }
     result["override"] = compute_override(result, order_blocks)
     return result
