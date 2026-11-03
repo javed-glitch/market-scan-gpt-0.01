@@ -56,12 +56,15 @@ jobs:
           TD_MIN_SECONDS_BETWEEN_CALLS: "11"
         run: |
           python cycle_bot.py
+      - name: Build smart money page data
+        continue-on-error: true
+        run: python smart_money.py
       - name: Commit cycle_data.json and symbols_last_good.json
         run: |
-          if [ -n "$(git status --porcelain -- cycle_data.json symbols_last_good.json)" ]; then
+          if [ -n "$(git status --porcelain -- cycle_data.json symbols_last_good.json smart_money.json)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add cycle_data.json symbols_last_good.json 2>/dev/null || true
+            git add cycle_data.json symbols_last_good.json smart_money.json 2>/dev/null || true
             git commit -m "Update cycle_data.json / symbols_last_good.json [skip ci]"
             git push
           else

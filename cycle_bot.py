@@ -608,6 +608,7 @@ def _smc_blocks_one(df, size, tf_label, bar_hours):
             "vol_mult": round(float(V[j]/avgv[j]),1) if avgv[j] and avgv[j] > 0 else 0.0,
             "tf": tf_label,
             "age_h": round(ago_bars*bar_hours),
+            "ts": int(df.index[j].timestamp()*1000),
         })
     return out
 
