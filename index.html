@@ -248,9 +248,20 @@ function buildTile(r){
     return `<div class="ob-row" style="background:var(--surface2)">
       <span class="tag" style="background:${isD?"var(--green-bg)":"var(--red-bg)"};color:${isD?"var(--green)":"var(--red)"}">${isD?"DEMAND":"SUPPLY"}</span>
       <span class="zone">${cs}${ob.lo.toFixed(0)} – ${cs}${ob.hi.toFixed(0)}</span>
-      <span class="vol">${ob.vol_mult.toFixed(1)}x · ${ob.sessions_ago}d</span>
+      <span class="vol">${ob.vol_mult.toFixed(1)}x · ${ob.tf==="4H" ? ob.sessions_ago*4+"h" : ob.sessions_ago+"d"}</span>
     </div>`;
   }).join("") : `<div class="none">No order block data</div>`;
+
+  const smc = r.smc_blocks || [];
+  const ageTxt = h => h < 48 ? h+"h" : Math.round(h/24)+"d";
+  const smcHtml = smc.length ? smc.map(b => {
+    const isD = b.type === "demand";
+    return `<div class="ob-row" style="background:var(--surface2)">
+      <span class="tag" style="background:${isD?"var(--green-bg)":"var(--red-bg)"};color:${isD?"var(--green)":"var(--red)"}">${isD?"DEMAND":"SUPPLY"}</span>
+      <span class="zone">${cs}${b.lo.toFixed(2)} – ${cs}${b.hi.toFixed(2)}</span>
+      <span class="vol">${b.tf} · ${b.vol_mult.toFixed(1)}x · ${ageTxt(b.age_h)} · ${b.inside ? "IN ZONE" : b.dist_pct.toFixed(1)+"% "+(isD?"below":"above")}</span>
+    </div>`;
+  }).join("") : `<div class="none">No open structure blocks</div>`;
 
   const ov = r.override || {status:"DENIED", reason:"No order block data"};
   const ovColors = {
@@ -295,6 +306,8 @@ function buildTile(r){
     <div class="obs">
       <div class="h"><span>Volume order blocks</span><span style="color:var(--purple)">LIVE 4H+1D</span></div>
       ${obHtml}
+      <div class="h" style="margin-top:8px"><span>Structure blocks (Lux-style)</span><span style="color:var(--purple)">1H+4H+1D</span></div>
+      ${smcHtml}
     </div>
     <div class="override" style="border-color:${ovFg}; background:${ovBg}">
       <div class="h"><span>Order block override</span><span>3x vol min</span></div>

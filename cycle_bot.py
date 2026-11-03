@@ -550,6 +550,96 @@ def compute_order_blocks(df_4h, df_1d, close, n=4):
     return result[:n]
 
 # =========================
+# STRUCTURE ORDER BLOCKS (LuxAlgo Smart Money style)
+# =========================
+def _smc_blocks_one(df, size, tf_label, bar_hours):
+    """
+    A close through the last swing high/low is a structure break. The order block
+    is the extreme candle of the leg that made the break: lowest candle for a
+    bullish break (demand), highest for a bearish break (supply). A block is
+    dropped once price closes through it. vol_mult = that candle's volume vs its 20-bar average.
+    """
+    if df is None or len(df) < size*3 + 10:
+        return []
+    df = df.copy()
+    for c in ("o","h","l","c","v"):
+        df[c] = pd.to_numeric(df[c], errors="coerce") if c in df.columns else 1.0
+    df = df.dropna(subset=["o","h","l","c"]).copy()
+    df["v"] = df["v"].fillna(0)
+    n = len(df)
+    H, L, C, V = df["h"].values, df["l"].values, df["c"].values, df["v"].values
+    pc = df["c"].shift()
+    tr = pd.concat([df["h"]-df["l"], (df["h"]-pc).abs(), (df["l"]-pc).abs()], axis=1).max(axis=1)
+    atr = tr.rolling(200, min_periods=14).mean().fillna(1e12).values
+    hv = (H-L) >= 2*atr                      # very wide bar: swap high/low like Lux
+    pH = np.where(hv, L, H); pL = np.where(hv, H, L)
+    avgv = pd.Series(V).rolling(20, min_periods=10).mean().values
+
+    leg = 0; hi = None; lo = None; obs = []
+    for t in range(size, n):
+        i = t - size
+        new_h = H[i] > H[i+1:t+1].max()
+        new_l = L[i] < L[i+1:t+1].min()
+        prev = leg
+        if new_h: leg = 0
+        elif new_l: leg = 1
+        if leg != prev:
+            if leg == 0: hi = {"i": i, "lvl": H[i], "crossed": False}
+            else:        lo = {"i": i, "lvl": L[i], "crossed": False}
+        if hi and not hi["crossed"] and C[t] > hi["lvl"]:
+            hi["crossed"] = True
+            j = hi["i"] + int(np.argmin(pL[hi["i"]:t]))
+            obs.append({"type":"demand","j":j,"t":t})
+        if lo and not lo["crossed"] and C[t] < lo["lvl"]:
+            lo["crossed"] = True
+            j = lo["i"] + int(np.argmax(pH[lo["i"]:t]))
+            obs.append({"type":"supply","j":j,"t":t})
+        obs = [o for o in obs if o["t"] == t or not (
+            (o["type"]=="demand" and C[t] < pL[o["j"]]) or
+            (o["type"]=="supply" and C[t] > pH[o["j"]]))]
+
+    out = []
+    for o in obs:
+        j = o["j"]
+        lo_p, hi_p = float(pL[j]), float(pH[j])
+        ago_bars = n-1-j
+        out.append({
+            "type": o["type"], "lo": round(lo_p,2), "hi": round(hi_p,2),
+            "vol_mult": round(float(V[j]/avgv[j]),1) if avgv[j] and avgv[j] > 0 else 0.0,
+            "tf": tf_label,
+            "age_h": round(ago_bars*bar_hours),
+        })
+    return out
+
+def compute_smc_blocks(df_1h, df_4h, df_1d, close, n=5):
+    """Unmitigated structure blocks on 1H, 4H, 1D; nearest to price first. Display only."""
+    try:
+        blocks = []
+        blocks += _smc_blocks_one(df_1h, 5, "1H", 1)
+        blocks += _smc_blocks_one(df_4h, 5, "4H", 4)
+        blocks += _smc_blocks_one(df_1d, 5, "1D", 24)
+        for b in blocks:
+            b["inside"] = b["lo"] <= close <= b["hi"]
+            b["dist_pct"] = 0.0 if b["inside"] else round(
+                (min(abs(close-b["lo"]), abs(close-b["hi"]))/close)*100, 1)
+        # drop a block that sits wholly on the wrong side of price (already crossed intrabar)
+        blocks = [b for b in blocks if not (b["type"]=="demand" and close < b["lo"])
+                  and not (b["type"]=="supply" and close > b["hi"])]
+        # weight bigger timeframes: distance first, then the larger timeframe
+        rank = {"1D":0, "4H":1, "1H":2}
+        blocks.sort(key=lambda b: (b["dist_pct"], rank[b["tf"]]))
+        seen, res = [], []
+        for b in blocks:
+            if any(s["type"]==b["type"] and not (b["hi"] < s["lo"] or b["lo"] > s["hi"]) for s in seen):
+                continue
+            seen.append(b); res.append(b)
+            if len(res) >= n: break
+        return res
+    except Exception as e:
+        print(f"smc blocks skipped: {e}")
+        return []
+
+# =========================
 # OVERRIDE LOGIC
 # =========================
 OV_TRIGGER_STAGES = {
@@ -690,6 +780,7 @@ def analyze_symbol(symbol, vol_mult):
     df_1d_v["v"] = pd.to_numeric(df_1d_v["v"], errors="coerce").fillna(0)
 
     order_blocks = compute_order_blocks(df_4h_v, df_1d_v, close, n=4)
+    smc_blocks   = compute_smc_blocks(df_1h_v, df_4h_v, df_1d_v, close, n=5)
 
     deployed = get_deployed(symbol)
     try:
@@ -721,6 +812,7 @@ def analyze_symbol(symbol, vol_mult):
         "already_deployed": deployed,
         "available":    max(0, CAPITAL_PER_TICKER-deployed),
         "order_blocks": order_blocks,
+        "smc_blocks":   smc_blocks,
         "currency":     get_currency(symbol),
         "csym":         csym(symbol),
         "fell":         fell,
@@ -892,7 +984,7 @@ def draw_ticker_card(ax, cx, cy, cw, ch, r):
           f"{cs}{ob['lo']:.0f} – {cs}{ob['hi']:.0f}",sz=6.8,c=T1,bold=True)
         vol_c = R_FG if ob["vol_mult"]>=3.5 else A_FG if ob["vol_mult"]>=2.5 else T2
         t(ax,LX+IW*0.600,VP(fy),f"{ob['vol_mult']:.1f}x",sz=7.0,c=vol_c,bold=True)
-        t(ax,LX+IW*0.740,VP(fy),f"{ob['sessions_ago']}d",sz=6.8,c=T3)
+        t(ax,LX+IW*0.740,VP(fy),(f"{ob['sessions_ago']*4}h" if ob.get('tf')=="4H" else f"{ob['sessions_ago']}d"),sz=6.8,c=T3)
         bar_x = LX+IW*0.840; bar_w = IW*0.120
         bar_h = ch*0.012;    bar_y = VP(fy)-bar_h/2
         pb(ax,bar_x,bar_y,bar_w,bar_h,max(0,100-prox*8),ob_fg,z=4)
