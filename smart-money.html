@@ -14,7 +14,6 @@
     --red:#e2685f; --red-bg:#3a2018;
     --amber:#e3a253; --amber-bg:#3a2e1a;
     --blue:#6ea3d8; --blue-bg:#182636;
-    --purple:#a684e8; --purple-bg:#241c33;
     --teal:#4fd3c4;
     --grid:#222831; --up:#4fae82; --down:#e2685f;
   }
@@ -26,54 +25,76 @@
       --red:#a8412c; --red-bg:#fbeae6;
       --amber:#a8712c; --amber-bg:#faedd9;
       --blue:#2f5fa8; --blue-bg:#e8f0fa;
-      --purple:#6a3fc0; --purple-bg:#f1ecfb;
       --teal:#1f8f80;
       --grid:#e6e9ee; --up:#1e7a4f; --down:#a8412c;
     }
   }
   *{box-sizing:border-box}
-  body{margin:0; background:var(--bg); color:var(--text); font-family:'IBM Plex Sans',system-ui,sans-serif; padding:0 0 60px}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:'IBM Plex Sans',system-ui,sans-serif; padding:0 0 60px; line-height:1.45}
   .wrap{max-width:1100px; margin:0 auto; padding:0 16px}
   .mono{font-family:'IBM Plex Mono',monospace}
-  header{background:var(--surface); border-bottom:1px solid var(--border); padding:16px 16px}
+  header{background:var(--surface); border-bottom:1px solid var(--border); padding:16px}
   header .inner{max-width:1100px; margin:0 auto; display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px}
   h1{font-size:19px; font-weight:700; margin:0; letter-spacing:-0.01em}
   .meta{color:var(--text-faint); font-size:12px; font-family:'IBM Plex Mono',monospace}
   .meta a{color:var(--blue); text-decoration:none}
-  .note{color:var(--text-dim); font-size:12.5px; line-height:1.5; margin:14px 0 4px}
+  .intro{color:var(--text-dim); font-size:14px; margin:14px 0 4px}
+  h2{font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-faint); margin:18px 0 8px}
 
-  .chips{display:flex; gap:6px; overflow-x:auto; padding:12px 0 6px; -webkit-overflow-scrolling:touch}
-  .chip{flex:0 0 auto; border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:7px 10px; cursor:pointer; min-width:92px}
-  .chip.sel{border-color:var(--blue); background:var(--blue-bg)}
-  .chip .s{font-weight:700; font-size:13px}
-  .chip .p{font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-dim)}
-  .tag{display:inline-block; font-size:9px; font-weight:700; padding:1px 6px; border-radius:10px; font-family:'IBM Plex Mono',monospace; letter-spacing:.03em}
-  .v-ACCUMULATION{background:var(--green-bg); color:var(--green)}
-  .v-BUILDING{background:var(--blue-bg); color:var(--blue)}
-  .v-NEUTRAL{background:var(--surface2); color:var(--text-dim)}
-  .v-WEAK{background:var(--red-bg); color:var(--red)}
+  .cards{display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:8px}
+  .card{border:1px solid var(--border); background:var(--surface); border-radius:12px; padding:10px 12px; cursor:pointer}
+  .card.sel{border-color:var(--blue); background:var(--blue-bg)}
+  .card .top{display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:6px}
+  .card .sym{font-weight:700; font-size:15px}
+  .card .px{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-dim)}
+  .line{display:flex; justify-content:space-between; gap:8px; font-size:13px; padding:2px 0}
+  .line .k{color:var(--text-faint)}
+  .line .v{font-family:'IBM Plex Mono',monospace; font-weight:600; white-space:nowrap}
+  .buy{color:var(--green)} .sell{color:var(--red)}
+  .dots{letter-spacing:1px; font-size:11px}
 
-  .panel{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px; margin-top:10px}
-  .ph{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px}
-  .ph .t{font-size:17px; font-weight:700}
-  .why{color:var(--text-dim); font-size:12.5px; line-height:1.55; margin:2px 0 8px}
-  .tog{display:flex; flex-wrap:wrap; gap:6px; margin:8px 0}
-  .tog label{font-size:11.5px; border:1px solid var(--border); border-radius:14px; padding:4px 10px; cursor:pointer; user-select:none; background:var(--surface2); color:var(--text-dim)}
+  .chip{display:inline-block; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:10px; white-space:nowrap}
+  .f-IN{background:var(--green-bg); color:var(--green)}
+  .f-SOME{background:var(--blue-bg); color:var(--blue)}
+  .f-QUIET{background:var(--surface2); color:var(--text-dim)}
+  .f-NONE{background:var(--surface2); color:var(--text-faint)}
+  .f-OUT{background:var(--red-bg); color:var(--red)}
+
+  .panel{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; margin-top:10px}
+  .ph{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px}
+  .ph .t{font-size:19px; font-weight:700}
+  .head{font-size:15px; margin:8px 0 4px}
+  .idea{background:var(--surface2); border-radius:10px; padding:10px 12px; font-size:13.5px; margin:10px 0}
+  .zones{display:grid; grid-template-columns:1fr; gap:10px; margin-top:10px}
+  @media(min-width:760px){ .zones{grid-template-columns:1fr 1fr} }
+  .zbox{border:1px solid var(--border); border-radius:12px; padding:10px 12px}
+  .zbox.b{border-left:4px solid var(--green)} .zbox.s{border-left:4px solid var(--red)}
+  .zbox h3{margin:0 0 6px; font-size:13px}
+  .z{padding:8px 0; border-top:1px solid var(--border)}
+  .z:first-of-type{border-top:0}
+  .z .r{font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:16px}
+  .z .d{font-size:12px; color:var(--text-dim); margin:1px 0 3px}
+  .z ul{margin:3px 0 0; padding-left:17px; font-size:12.5px; color:var(--text-dim)}
+  .tag{display:inline-block; font-size:10px; font-weight:700; padding:1px 7px; border-radius:10px; background:var(--amber-bg); color:var(--amber); margin-left:6px}
+  .other{font-size:13px; color:var(--text-dim); line-height:1.7}
+  .other b{color:var(--text)}
+
+  .tog{display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 6px}
+  .tog label{font-size:12px; border:1px solid var(--border); border-radius:14px; padding:5px 11px; cursor:pointer; user-select:none; background:var(--surface2); color:var(--text-dim)}
   .tog label.on{border-color:var(--blue); color:var(--text); background:var(--blue-bg)}
   #chart{width:100%; display:block}
   svg text{font-family:'IBM Plex Mono',monospace; font-size:10px; fill:var(--text-faint)}
-  .legend{display:flex; flex-wrap:wrap; gap:12px; font-size:11px; color:var(--text-dim); margin-top:8px}
+  .legend{display:flex; flex-wrap:wrap; gap:12px; font-size:11.5px; color:var(--text-dim); margin-top:8px}
   .legend i{display:inline-block; width:12px; height:8px; border-radius:2px; margin-right:5px; vertical-align:middle}
 
+  details{margin-top:12px} summary{cursor:pointer; font-size:13px; color:var(--text-dim); padding:6px 0}
   table{width:100%; border-collapse:collapse; font-size:12px}
-  th{ text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); font-weight:600; padding:4px 6px; border-bottom:1px solid var(--border)}
+  th{text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); font-weight:600; padding:4px 6px; border-bottom:1px solid var(--border)}
   td{padding:5px 6px; border-bottom:1px solid var(--border); font-family:'IBM Plex Mono',monospace; font-size:11.5px; white-space:nowrap}
   .scroll{overflow-x:auto}
-  .grid2{display:grid; grid-template-columns:1fr; gap:10px}
-  @media(min-width:820px){ .grid2{grid-template-columns:1fr 1fr} }
-  h3{font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-faint); margin:0 0 6px}
-  .d{color:var(--green)} .s{color:var(--red)}
-  .foot{color:var(--text-faint); font-size:11.5px; line-height:1.55; margin-top:14px}
+  .foot{color:var(--text-dim); font-size:13px; line-height:1.6; margin-top:18px}
+  .foot li{margin-bottom:4px}
+  .small{color:var(--text-faint); font-size:12px; margin-top:10px}
 </style>
 </head>
 <body>
@@ -83,155 +104,155 @@
 </div></header>
 
 <div class="wrap">
-  <div class="note">Where heavy volume traded and where price turned, built from free Yahoo hourly data. It shows footprints, not who is trading. Display only: no signals, no orders.</div>
-  <div class="chips" id="chips"></div>
+  <div class="intro">Where big money has been <b>buying</b> (buy zones) and where <b>sellers</b> are waiting (sell zones), so you can place limit orders where there is support behind them. Tap a stock for the detail.</div>
+  <h2>All stocks</h2>
+  <div class="cards" id="cards"></div>
   <div id="main"></div>
+
   <div class="foot">
-    <b>How to read it.</b> Order blocks (Lux-style): after price closes through a swing high or low, the block is the extreme candle of the move that caused it. A block is dropped once price closes through it.
-    Absorption: a bar with at least 2x its normal volume for that hour but a small range, at the lows (accumulation) or highs (distribution). A solid marker means the stock's volume stood at least 1.5x above SPY's in the same hour; a hollow one is market-wide volume, so it is not counted.
-    Volume profile: volume traded at each price over about 20 sessions. Anchored VWAP: average price paid since the window low; price above it means buyers since the low are in profit.
-    The evidence score is a simple tally of those pieces, not a forecast.
+    <h2>How to read this</h2>
+    <ul>
+      <li><b>Buy zone</b> = a price area where lots of buying showed up and the price held or bounced. A limit buy there has support under it.</li>
+      <li><b>Sell zone</b> = a price area where sellers pushed the price back down. A limit sell or trim there has sellers behind it.</li>
+      <li><b>Strength</b> = how many separate signals agree on the zone: heavy volume, price turning there before, lots of shares traded there, and options traders' big bets. 3 dots means 3 or more agree.</li>
+      <li><b>Money flow</b> summarises recent hourly volume: "going in" means heavy buying that held; "going out" means heavy selling at the highs.</li>
+    </ul>
+    <div class="small">This is built from free hourly price and volume data, so it shows footprints, not who is trading. Zones are guides, not guarantees, and prices can go straight through them. Ideas for you to weigh, not advice.</div>
   </div>
 </div>
 
 <script>
 const DATA_URL = "smart_money.json";
-let DATA = null, SEL = null;
-const ST = {tf:{"1H":true,"2H":true,"4H":true,"1D":true}, abs:true, vwap:true, prof:true};
+let DATA = null, SEL = null, SELP = 0;
+const ST = {prof:false, abs:false, vwap:false};
+const FLOW = {IN:"Money going IN", SOME:"Some buying", QUIET:"Quiet", NONE:"No sign of buyers", OUT:"Money going OUT"};
 
 const $ = s => document.querySelector(s);
-const ccy = c => c === "USD" ? "$" : c === "GBP" ? "£" : (c || "$");
+const ccy = c => { c = (c || "").trim(); return /^USD|^\$/.test(c) ? "$" : /^GBP|^£/.test(c) ? "£" : (c || "$"); };
 const fmt = (v, d=2) => v == null ? "–" : Number(v).toFixed(d);
+const px = (v, cs) => cs + (v >= 100 ? Math.round(v) : fmt(v, 2));
+const rng = (z, cs) => px(z.lo, cs) + "–" + px(z.hi, cs).replace(cs, "");
+const dots = z => ({Strong:"●●●", Medium:"●●○", Light:"●○○"})[z.strength];
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const dayLbl = ms => { const d = new Date(ms); return d.getUTCDate() + " " + ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getUTCMonth()]; };
-const ageTxt = h => h < 48 ? h + "h" : Math.round(h/24) + "d";
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const dayLbl = ms => { const d = new Date(ms); return d.getUTCDate() + " " + MON[d.getUTCMonth()]; };
+const best = zs => zs.find(z => z.n >= 2) || zs[0];
+const where = z => z.inside ? "Price is in this zone now" : fmt(z.dist_pct, 1) + "% " + (z.hi < SELP ? "below" : "above") + " today's price";
 
 async function load(){
-  try{
-    const r = await fetch(DATA_URL + "?" + Date.now());
-    DATA = await r.json();
-  }catch(e){ $("#gen").textContent = "could not load data"; return; }
-  $("#gen").textContent = "data " + DATA.generated_at;
+  try{ DATA = await (await fetch(DATA_URL + "?" + Date.now())).json(); }
+  catch(e){ $("#gen").textContent = "could not load data"; return; }
+  $("#gen").textContent = "updated " + DATA.generated_at;
   const hash = decodeURIComponent(location.hash.replace("#",""));
   SEL = (DATA.results.find(r => r.symbol === hash) || DATA.results[0] || {}).symbol;
-  renderChips(); renderMain();
+  renderCards(); renderMain();
 }
 
-function renderChips(){
-  $("#chips").innerHTML = DATA.results.map(r =>
-    `<div class="chip ${r.symbol===SEL?"sel":""}" data-s="${r.symbol}">
-       <div class="s">${r.symbol}</div>
-       <div class="p">${ccy(r.ccy)}${fmt(r.last)}</div>
-       <span class="tag v-${r.verdict}">${r.verdict}</span>
-     </div>`).join("");
-  document.querySelectorAll(".chip").forEach(c => c.onclick = () => { SEL = c.dataset.s; history.replaceState(null,"","#"+SEL); renderChips(); renderMain(); });
+function renderCards(){
+  $("#cards").innerHTML = DATA.results.map(r => {
+    const cs = ccy(r.ccy), b = best(r.zones.buy), s = best(r.zones.sell);
+    return `<div class="card ${r.symbol===SEL?"sel":""}" data-s="${r.symbol}">
+      <div class="top"><div><span class="sym">${r.symbol}</span> <span class="px">${cs}${fmt(r.last)}</span></div><span class="chip f-${r.flow}">${FLOW[r.flow]}</span></div>
+      <div class="line"><span class="k">Buy zone</span><span class="v buy">${b ? rng(b, cs) + ' <span class="dots">' + dots(b) + '</span>' : "–"}</span></div>
+      <div class="line"><span class="k">Sell zone</span><span class="v sell">${s ? rng(s, cs) + ' <span class="dots">' + dots(s) + '</span>' : "–"}</span></div>
+    </div>`; }).join("");
+  document.querySelectorAll(".card").forEach(c => c.onclick = () => {
+    SEL = c.dataset.s; history.replaceState(null, "", "#" + SEL); renderCards(); renderMain();
+    $("#main").scrollIntoView({behavior:"smooth", block:"start"}); });
+}
+
+function zoneHtml(z, cs, side){
+  const opt = z.why.some(w => w.startsWith("Options"));
+  return `<div class="z"><div class="r ${side}">${rng(z, cs)} <span class="dots">${dots(z)}</span> <span style="font-size:12px;font-weight:600">${z.strength}</span>${opt ? '<span class="tag">options agree</span>' : ""}</div>
+    <div class="d">${where(z)}</div><ul>${z.why.map(w => "<li>" + w + "</li>").join("")}</ul></div>`;
 }
 
 function renderMain(){
   const r = DATA.results.find(x => x.symbol === SEL); if(!r) return;
-  const cs = ccy(r.ccy);
-  const tfs = ["1H","2H","4H","1D"];
-  const togs = tfs.map(t => `<label data-k="tf:${t}" class="${ST.tf[t]?"on":""}">${t} blocks</label>`).join("")
-    + `<label data-k="abs" class="${ST.abs?"on":""}">Absorption</label>`
-    + `<label data-k="vwap" class="${ST.vwap?"on":""}">Anchored VWAP</label>`
-    + `<label data-k="prof" class="${ST.prof?"on":""}">Volume profile</label>`;
-  const allBlocks = tfs.flatMap(t => (r.blocks[t]||[]).map(b => ({...b, tf:t})));
-  allBlocks.forEach(b => b.dist = b.inside ? 0 : Math.min(Math.abs(r.last-b.lo), Math.abs(r.last-b.hi))/r.last*100);
-  allBlocks.sort((a,b) => a.dist - b.dist);
-  const rows = allBlocks.slice(0,10).map(b =>
-    `<tr><td class="${b.type==="demand"?"d":"s"}">${b.type==="demand"?"DEMAND":"SUPPLY"}</td><td>${b.tf}</td><td>${cs}${fmt(b.lo)} – ${cs}${fmt(b.hi)}</td><td>${fmt(b.vol_mult,1)}x</td><td>${ageTxt(b.age_h)}</td><td>${b.inside?"IN ZONE":fmt(b.dist,1)+"% "+(b.lo>r.last?"above":"below")}</td></tr>`).join("");
-  const arows = [...r.absorption].reverse().map(a => {
-    const real = a.excess >= 1.5;
-    const d = new Date(a.ts); const when = dayLbl(a.ts) + " " + String(d.getUTCHours()).padStart(2,"0") + ":00";
-    return `<tr><td class="${a.kind==="ACCUM"?"d":"s"}">${a.kind==="ACCUM"?"ACCUM":"DISTR"}</td><td>${when}</td><td>${cs}${fmt(a.lo)} – ${cs}${fmt(a.hi)}</td><td>${fmt(a.rvol,1)}x</td><td>${real?"stock-specific":"market-wide"}</td><td>${a.held?"held":"broke"}</td></tr>`;
-  }).join("");
+  const cs = ccy(r.ccy); SELP = r.last;
+  const b = best(r.zones.buy), s = best(r.zones.sell);
+  let head = `<b>${r.symbol}</b> is at <b>${px(r.last, cs)}</b>. `;
+  head += b ? `Buyers have stepped in around <b class="buy">${rng(b, cs)}</b> (${b.inside ? "price is inside it now" : fmt(b.dist_pct,1) + "% below"}). ` : "No clear buying zone nearby. ";
+  head += s ? `Sellers are waiting around <b class="sell">${rng(s, cs)}</b> (${s.inside ? "price is inside it now" : fmt(s.dist_pct,1) + "% above"}).` : "No clear selling zone nearby.";
+  let idea;
+  if(b && (b.inside || b.dist_pct <= 2)) idea = "Price is sitting on the buyers' zone. A limit buy here has support underneath it.";
+  else if(s && (s.inside || s.dist_pct <= 2)) idea = "Price is up against the sellers' zone. A limit sell or trim here has sellers behind it, and buying here means buying into them.";
+  else idea = "Price is in the middle, away from both zones. Limit orders placed at the zones have more behind them than chasing the price.";
+  const cyc = r.cycle ? `<b>Cycle bot:</b> ${r.cycle.stage} stage · ${r.cycle.core}${r.cycle.tactical ? " · short-term: " + r.cycle.tactical : ""}` : "";
+  const opt = r.options ? `<b>Options:</b> the biggest pull on price (max pain) is ${px(r.options.max_pain, cs)} for ${dayLbl(Date.parse(r.options.expiry))}` : "<b>Options:</b> no options data";
+  const tog = [["prof","Where most trading happened"],["abs","Heavy-volume bars"],["vwap","Average price buyers paid since the low"]]
+    .map(([k,l]) => `<label data-k="${k}" class="${ST[k]?"on":""}">${l}</label>`).join("");
+  const ageTxt = h => h < 48 ? h + "h" : Math.round(h/24) + "d";
+  const allBlocks = ["1H","2H","4H","1D"].flatMap(t => (r.blocks[t]||[]).map(x => ({...x, tf:t})));
+  allBlocks.forEach(x => x.dist = x.inside ? 0 : Math.min(Math.abs(r.last-x.lo), Math.abs(r.last-x.hi))/r.last*100);
+  allBlocks.sort((a,c) => a.dist - c.dist);
+  const brow = allBlocks.slice(0,10).map(x => `<tr><td class="${x.type==="demand"?"buy":"sell"}">${x.type==="demand"?"DEMAND":"SUPPLY"}</td><td>${x.tf}</td><td>${px(x.lo,cs)}–${px(x.hi,cs).replace(cs,"")}</td><td>${fmt(x.vol_mult,1)}x</td><td>${ageTxt(x.age_h)}</td><td>${x.inside?"IN ZONE":fmt(x.dist,1)+"%"}</td></tr>`).join("");
+  const arow = [...r.absorption].reverse().map(a => { const d = new Date(a.ts);
+    return `<tr><td class="${a.kind==="ACCUM"?"buy":"sell"}">${a.kind==="ACCUM"?"BUYING":"SELLING"}</td><td>${dayLbl(a.ts)} ${String(d.getUTCHours()).padStart(2,"0")}:00</td><td>${px(a.lo,cs)}–${px(a.hi,cs).replace(cs,"")}</td><td>${fmt(a.rvol,1)}x</td><td>${a.excess>=1.5?"this stock":"whole market"}</td><td>${a.held?"held":"broke"}</td></tr>`; }).join("");
   $("#main").innerHTML = `
    <div class="panel">
-     <div class="ph"><div class="t">${r.symbol} <span class="mono" style="font-weight:500;color:var(--text-dim)">${cs}${fmt(r.last)}</span></div>
-       <span class="tag v-${r.verdict}">${r.verdict} · score ${r.score}</span></div>
-     <div class="why">${r.why.join(" · ")}</div>
-     <div class="tog">${togs}</div>
-     <div id="chart"></div>
-     <div class="legend">
-       <span><i style="background:var(--green);opacity:.55"></i>demand block</span>
-       <span><i style="background:var(--red);opacity:.55"></i>supply block</span>
-       <span><i style="background:var(--amber)"></i>anchored VWAP</span>
-       <span><i style="background:var(--teal)"></i>POC (most volume)</span>
-       <span>nearest 3 blocks each side · ▲ absorption at lows · ▼ at highs · hollow = market-wide</span>
+     <div class="ph"><div class="t">${r.symbol}</div><span class="chip f-${r.flow}">${FLOW[r.flow]}</span></div>
+     <div class="head">${head}</div>
+     <div class="idea">${idea}</div>
+     <div class="zones">
+       <div class="zbox b"><h3 class="buy">🟢 Buy zones (buyers stepped in)</h3>${r.zones.buy.length ? r.zones.buy.map(z => zoneHtml(z, cs, "buy")).join("") : "<div class='d'>None found nearby</div>"}</div>
+       <div class="zbox s"><h3 class="sell">🔴 Sell zones (sellers waiting)</h3>${r.zones.sell.length ? r.zones.sell.map(z => zoneHtml(z, cs, "sell")).join("") : "<div class='d'>None found nearby</div>"}</div>
      </div>
-   </div>
-   <div class="grid2">
-     <div class="panel"><h3>Nearest blocks</h3><div class="scroll"><table><tr><th>Type</th><th>TF</th><th>Zone</th><th>Vol</th><th>Age</th><th>Price</th></tr>${rows||"<tr><td>none</td></tr>"}</table></div></div>
-     <div class="panel"><h3>Absorption bars</h3><div class="scroll"><table><tr><th>Kind</th><th>When (UTC)</th><th>Zone</th><th>Vol</th><th>Source</th><th>After</th></tr>${arows||"<tr><td>none</td></tr>"}</table></div></div>
+     <h2>What our other tools say</h2>
+     <div class="other">${cyc}<br>${opt}</div>
+     <h2>Chart (last 20 trading days, hourly)</h2>
+     <div class="tog">${tog}</div>
+     <div id="chart"></div>
+     <div class="legend"><span><i style="background:var(--green);opacity:.6"></i>buy zone</span><span><i style="background:var(--red);opacity:.6"></i>sell zone</span></div>
+     <details><summary>More detail (technical)</summary>
+       <h2>Price-turn zones (order blocks)</h2><div class="scroll"><table><tr><th>Type</th><th>Chart</th><th>Zone</th><th>Volume</th><th>Age</th><th>Away</th></tr>${brow||"<tr><td>none</td></tr>"}</table></div>
+       <h2>Heavy-volume bars</h2><div class="scroll"><table><tr><th>Kind</th><th>When (UTC)</th><th>Zone</th><th>Volume</th><th>Whose</th><th>After</th></tr>${arow||"<tr><td>none</td></tr>"}</table></div>
+       <div class="small">Volume = how many times the normal amount for that hour. "Whole market" bars are ignored in the zones because every stock had heavy volume then.</div>
+     </details>
    </div>`;
-  document.querySelectorAll(".tog label").forEach(l => l.onclick = () => {
-    const k = l.dataset.k; if(k.startsWith("tf:")) ST.tf[k.slice(3)] = !ST.tf[k.slice(3)]; else ST[k] = !ST[k];
-    renderMain();
-  });
+  document.querySelectorAll(".tog label").forEach(l => l.onclick = () => { ST[l.dataset.k] = !ST[l.dataset.k]; renderMain(); });
   drawChart(r);
 }
 
 function drawChart(r){
-  const box = $("#chart"); const W = Math.max(300, box.clientWidth), H = Math.round(Math.min(520, Math.max(320, W*0.62)));
-  const showProf = ST.prof, PW = showProf ? Math.round(W*0.17) : 0, AX = 46;
+  const cs = ccy(r.ccy);
+  const box = $("#chart"); const W = Math.max(300, box.clientWidth), H = Math.round(Math.min(480, Math.max(300, W*0.58)));
+  const PW = ST.prof ? Math.round(W*0.16) : 0, AX = 44;
   const x0 = 4, x1 = W - PW - AX, y0 = 8, y1 = H - 22;
   const bars = r.bars, n = bars.length;
-  let lo = Math.min(...bars.map(b => b[3])), hi = Math.max(...bars.map(b => b[2]));
-  const pad = (hi - lo) * 0.06; lo -= pad; hi += pad;
+  const zs = [...r.zones.buy.map(z => ({...z, side:"buy"})), ...r.zones.sell.map(z => ({...z, side:"sell"}))];
+  let lo = Math.min(...bars.map(b => b[3]), ...zs.map(z => z.lo)), hi = Math.max(...bars.map(b => b[2]), ...zs.map(z => z.hi));
+  const pad = (hi - lo) * 0.05; lo -= pad; hi += pad;
   const Y = p => y1 - (p - lo) / (hi - lo) * (y1 - y0);
   const step = (x1 - x0) / n, X = i => x0 + (i + 0.5) * step;
-  const tsIdx = ts => { let k = 0; for(let i=0;i<n;i++){ if(bars[i][0] <= ts) k = i; else break; } return bars[0][0] > ts ? -1 : k; };
+  const tsIdx = ts => { if(bars[0][0] > ts) return -1; let k = 0; for(let i=0;i<n;i++){ if(bars[i][0] <= ts) k = i; else break; } return k; };
   const up = css("--up"), dn = css("--down"), grid = css("--grid"), green = css("--green"), red = css("--red"), amber = css("--amber"), teal = css("--teal"), faint = css("--text-faint"), txt = css("--text");
   let s = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
-  // grid + price axis
-  const ticks = 5;
-  for(let i=0;i<=ticks;i++){ const p = lo + (hi-lo)*i/ticks, y = Y(p);
+  for(let i=0;i<=5;i++){ const p = lo + (hi-lo)*i/5, y = Y(p);
     s += `<line x1="${x0}" x2="${x1}" y1="${y}" y2="${y}" stroke="${grid}"/><text x="${x1+PW+4}" y="${y+3}">${p.toFixed(p>100?0:1)}</text>`; }
-  // day labels
-  const labelEvery = Math.max(1, Math.ceil(62 / (step * 7)));
-  let dcount = 0, lastDay = "";
-  for(let i=0;i<n;i++){ const dl = dayLbl(bars[i][0]); if(dl !== lastDay){ lastDay = dl; dcount++;
+  const every = Math.max(1, Math.ceil(62 / (step * 7))); let dc = 0, ld = "";
+  for(let i=0;i<n;i++){ const dl = dayLbl(bars[i][0]); if(dl !== ld){ ld = dl; dc++;
     s += `<line x1="${X(i)}" x2="${X(i)}" y1="${y0}" y2="${y1}" stroke="${grid}" stroke-dasharray="2 4"/>`;
-    if(dcount % labelEvery === 0) s += `<text x="${X(i)-8}" y="${H-6}">${dl}</text>`; } }
-  // volume profile (right side)
-  if(showProf && r.profile.length){
-    const mx = Math.max(...r.profile.map(p => p[1])), bh = Math.max(2, (y1-y0) / Math.max(20, r.profile.length) );
-    r.profile.forEach(([p,v]) => { if(p < lo || p > hi) return; const w = v/mx * (PW-6), y = Y(p);
-      const inVA = p >= r.va_lo && p <= r.va_hi;
-      s += `<rect x="${x1+AX*0+PW-w}" y="${y-bh/2}" width="${w}" height="${bh}" fill="${p===r.poc?teal:(inVA?"#6ea3d8":faint)}" opacity="${p===r.poc?0.9:(inVA?0.45:0.25)}"/>`; });
-    s += `<line x1="${x1}" x2="${x1+PW}" y1="${Y(r.poc)}" y2="${Y(r.poc)}" stroke="${teal}" stroke-width="1"/>`;
+    if(dc % every === 0) s += `<text x="${X(i)-8}" y="${H-6}">${dl}</text>`; } }
+  if(ST.prof && r.profile.length){
+    const mx = Math.max(...r.profile.map(p => p[1])), bh = Math.max(2, (y1-y0) / Math.max(20, r.profile.length));
+    r.profile.forEach(([p,v]) => { if(p < lo || p > hi) return; const w = v/mx * (PW-6), inVA = p >= r.va_lo && p <= r.va_hi;
+      s += `<rect x="${x1+PW-w}" y="${Y(p)-bh/2}" width="${w}" height="${bh}" fill="${p===r.poc?teal:(inVA?"#6ea3d8":faint)}" opacity="${p===r.poc?0.9:(inVA?0.45:0.25)}"/>`; });
   }
-  // order blocks
-  const shown = [];
-  Object.keys(ST.tf).forEach(tf => { if(!ST.tf[tf]) return;
-    (r.blocks[tf]||[]).forEach(b => { if(b.hi < lo || b.lo > hi) return; shown.push({...b, tf, dist: b.inside ? 0 : Math.min(Math.abs(r.last-b.lo), Math.abs(r.last-b.hi))}); }); });
-  shown.sort((a,b) => a.dist - b.dist);
-  const cnt = {demand:0, supply:0};
-  const draw = shown.filter(b => ++cnt[b.type] <= 3);
-  draw.reverse().forEach(b => { const tf = b.tf;
-    {
-      const k = tsIdx(b.ts), xs = k < 0 ? x0 : X(k);
-      const yt = Y(Math.min(b.hi, hi)), yb = Y(Math.max(b.lo, lo));
-      const col = b.type === "demand" ? green : red;
-      s += `<rect x="${xs}" y="${yt}" width="${x1-xs}" height="${Math.max(2, yb-yt)}" fill="${col}" opacity="0.16" stroke="${col}" stroke-opacity="0.55" stroke-width="0.7"/>`;
-      s += `<text x="${x1-3}" y="${yt+9}" text-anchor="end" style="fill:${col}">${tf} ${b.type==="demand"?"D":"S"} ${b.lo.toFixed(b.lo>100?0:1)}-${b.hi.toFixed(b.hi>100?0:1)}</text>`;
-    } });
-  // anchored vwap
+  zs.forEach(z => { const col = z.side === "buy" ? green : red, yt = Y(z.hi), yb = Y(z.lo), h = Math.max(3, yb - yt);
+    s += `<rect x="${x0}" y="${yt}" width="${x1-x0}" height="${h}" fill="${col}" opacity="${z.strength==="Light"?0.10:z.strength==="Medium"?0.17:0.25}" stroke="${col}" stroke-opacity="0.55" stroke-width="0.7"/>`;
+    s += `<text x="${x1-4}" y="${yt+10}" text-anchor="end" style="fill:${col};font-weight:600">${z.side==="buy"?"BUY":"SELL"} ${px(z.lo,cs)}-${px(z.hi,cs).replace(cs,"")} ${dots(z)}</text>`; });
   if(ST.vwap){ const k = Math.max(0, tsIdx(r.avwap_ts)), y = Y(r.avwap);
-    s += `<line x1="${X(k)}" x2="${x1}" y1="${y}" y2="${y}" stroke="${amber}" stroke-width="1.4" stroke-dasharray="5 3"/><text x="${x0+2}" y="${y-3}" style="fill:${amber}">AVWAP ${r.avwap}</text>`; }
-  // candles
+    s += `<line x1="${X(k)}" x2="${x1}" y1="${y}" y2="${y}" stroke="${amber}" stroke-width="1.4" stroke-dasharray="5 3"/><text x="${x0+2}" y="${y-3}" style="fill:${amber}">buyers' average ${r.avwap}</text>`; }
   bars.forEach((b,i) => { const [t,o,h,l,c] = b, col = c >= o ? up : dn, x = X(i);
-    s += `<line x1="${x}" x2="${x}" y1="${Y(h)}" y2="${Y(l)}" stroke="${col}" stroke-width="1"/>`;
+    s += `<line x1="${x}" x2="${x}" y1="${Y(h)}" y2="${Y(l)}" stroke="${col}"/>`;
     const yo = Y(o), yc = Y(c); s += `<rect x="${x - Math.max(0.6, step*0.32)}" y="${Math.min(yo,yc)}" width="${Math.max(1.2, step*0.64)}" height="${Math.max(1, Math.abs(yo-yc))}" fill="${col}"/>`; });
-  // absorption markers
   if(ST.abs) r.absorption.forEach(a => { const i = tsIdx(a.ts); if(i < 0) return; const real = a.excess >= 1.5, x = X(i), acc = a.kind === "ACCUM", col = acc ? green : red;
     const y = acc ? Y(bars[i][3]) + 9 : Y(bars[i][2]) - 9, d = 5;
     const pts = acc ? `${x},${y-d} ${x-d},${y+d*0.6} ${x+d},${y+d*0.6}` : `${x},${y+d} ${x-d},${y-d*0.6} ${x+d},${y-d*0.6}`;
     s += `<polygon points="${pts}" fill="${real?col:"none"}" stroke="${col}" stroke-width="1.2"/>`; });
-  // last price
   const yl = Y(r.last);
-  s += `<line x1="${x0}" x2="${x1}" y1="${yl}" y2="${yl}" stroke="${txt}" stroke-opacity="0.35" stroke-dasharray="1 3"/><rect x="${x1+PW}" y="${yl-8}" width="${AX}" height="16" rx="3" fill="${txt}"/><text x="${x1+PW+4}" y="${yl+3.5}" style="fill:var(--bg);font-weight:600">${r.last.toFixed(r.last>100?1:2)}</text>`;
-  s += `</svg>`;
+  s += `<line x1="${x0}" x2="${x1}" y1="${yl}" y2="${yl}" stroke="${txt}" stroke-opacity="0.35" stroke-dasharray="1 3"/><rect x="${x1+PW}" y="${yl-8}" width="${AX}" height="16" rx="3" fill="${txt}"/><text x="${x1+PW+4}" y="${yl+3.5}" style="fill:var(--bg);font-weight:600">${r.last.toFixed(r.last>100?1:2)}</text></svg>`;
   box.innerHTML = s;
 }
 
