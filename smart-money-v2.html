@@ -95,6 +95,20 @@
   .foot{color:var(--text-dim); font-size:13px; line-height:1.6; margin-top:18px}
   .foot li{margin-bottom:4px}
   .small{color:var(--text-faint); font-size:12px; margin-top:10px}
+  .goal{border:1px solid var(--border); border-left:4px solid var(--blue); background:var(--surface); border-radius:12px; padding:10px 14px; margin:12px 0; font-size:13.5px; color:var(--text-dim)}
+  .goal b{color:var(--text)} .goal .loose{font-size:11.5px; color:var(--text-faint); margin-top:4px}
+  .whatsnew{border:1px solid var(--amber); background:var(--amber-bg); border-radius:12px; padding:10px 14px; margin:10px 0; font-size:13px; color:var(--text)}
+  .whatsnew ul{margin:4px 0 0; padding-left:18px} .whatsnew li{margin-bottom:2px}
+  .newtag{display:inline-block; font-size:9.5px; font-weight:800; letter-spacing:.05em; padding:1px 6px; border-radius:8px; background:var(--amber); color:var(--bg); margin-left:6px; vertical-align:middle}
+  .lead{border:1px solid var(--amber); border-radius:12px; padding:10px 12px; margin:10px 0}
+  .lead h3{margin:0 0 6px; font-size:13px}
+  .lr{display:flex; gap:8px; align-items:flex-start; padding:4px 0; font-size:13px}
+  .lr .dot{flex:none; width:10px; height:10px; border-radius:50%; margin-top:5px}
+  .dot.g{background:var(--green)} .dot.a{background:var(--amber)} .dot.r{background:var(--red)} .dot.n{background:var(--text-faint); opacity:.55}
+  .lr .k{flex:none; width:110px; color:var(--text-faint); font-size:12px}
+  .lr .tx{min-width:0; color:var(--text-dim)}
+  .leanline{margin-top:6px; padding-top:6px; border-top:1px solid var(--border); font-size:13.5px}
+  .l-UP{color:var(--green)} .l-DOWN{color:var(--red)} .l-MIXED{color:var(--amber)} .l-EVENT{color:var(--amber)}
 </style>
 </head>
 <body>
@@ -105,6 +119,15 @@
 
 <div class="wrap">
   <div class="intro">Where big money has been <b>buying</b> (buy zones) and where <b>sellers</b> are waiting (sell zones), so you can place limit orders where there is support behind them. Tap a stock for the detail.</div>
+  <div class="goal"><b>Goal:</b> spot large amounts of money ploughing in (or out of) a stock, to suggest current and future <b>entry and exit zones</b> over a <b>1 to 3 week</b> horizon. It can be extended further out where confidence in the upside holds.
+    <div class="loose">Loose note for now. We'll refine this wording and the horizon as we compare versions.</div></div>
+  <div class="whatsnew"><b>New in this update (4 Nov)</b> <span class="newtag">NEW</span>
+    <ul>
+      <li><b>Leading read</b> on each stock: options activity, volume when price hits the nearest zone, and strength vs the market. These look forward, unlike the zones, which look back.</li>
+      <li><b>Earnings date</b> and days to go, since a result can override everything else.</li>
+      <li><b>One-word lean</b> (Up / Mixed / Down / Event) on each card, from those signals. Not a forecast.</li>
+      <li><b>Momentum ticks</b> (RSI, MACD) tucked into "More detail". Early hints only, not counted in the lean.</li>
+    </ul></div>
   <h2>All stocks</h2>
   <div class="cards" id="cards"></div>
   <div id="main"></div>
@@ -115,6 +138,7 @@
       <li><b>Buy zone</b> = a price area where lots of buying showed up and the price held or bounced. A limit buy there has support under it.</li>
       <li><b>Sell zone</b> = a price area where sellers pushed the price back down. A limit sell or trim there has sellers behind it.</li>
       <li><b>Strength</b> = how many separate signals agree on the zone: heavy volume, price turning there before, lots of shares traded there, and options traders' big bets. 3 dots means 3 or more agree.</li>
+      <li><b>Leading read</b> <span class="newtag">NEW</span> = signals that look forward: options activity, whether volume turned up when price hit the nearest zone, and strength vs the S&amp;P over 5 days. The lean counts green vs red; results due within 2 days overrides it.</li>
       <li><b>Money flow</b> summarises recent hourly volume: "going in" means heavy buying that held; "going out" means heavy selling at the highs.</li>
     </ul>
     <div class="small">This is built from free hourly price and volume data, so it shows footprints, not who is trading. Zones are guides, not guarantees, and prices can go straight through them. Ideas for you to weigh, not advice.</div>
@@ -125,6 +149,7 @@
 const DATA_URL = "smart_money.json";
 let DATA = null, SEL = null, SELP = 0;
 const ST = {prof:false, abs:false, vwap:false};
+const LEAN = {UP:"Leaning up", MIXED:"Mixed", DOWN:"Leaning down", EVENT:"Results due"};
 const FLOW = {IN:"Money going IN", SOME:"Some buying", QUIET:"Quiet", NONE:"No sign of buyers", OUT:"Money going OUT"};
 
 const $ = s => document.querySelector(s);
@@ -155,6 +180,7 @@ function renderCards(){
       <div class="top"><div><span class="sym">${r.symbol}</span> <span class="px">${cs}${fmt(r.last)}</span></div><span class="chip f-${r.flow}">${FLOW[r.flow]}</span></div>
       <div class="line"><span class="k">Buy zone</span><span class="v buy">${b ? rng(b, cs) + ' <span class="dots">' + dots(b) + '</span>' : "–"}</span></div>
       <div class="line"><span class="k">Sell zone</span><span class="v sell">${s ? rng(s, cs) + ' <span class="dots">' + dots(s) + '</span>' : "–"}</span></div>
+      ${r.lead ? `<div class="line"><span class="k">Lean <span class="newtag">NEW</span></span><span class="v l-${r.lead.lean}">${LEAN[r.lead.lean]}${r.lead.earnings && r.lead.earnings.days <= 14 ? " · results " + (r.lead.earnings.days === 0 ? "today" : "in " + r.lead.earnings.days + "d") : ""}</span></div>` : ""}
     </div>`; }).join("");
   document.querySelectorAll(".card").forEach(c => c.onclick = () => {
     SEL = c.dataset.s; history.replaceState(null, "", "#" + SEL); renderCards(); renderMain();
@@ -193,11 +219,21 @@ function renderMain(){
   const nBlocks = ["1H","2H","4H","1D"].reduce((n,t) => n + (r.blocks[t]||[]).length, 0);
   const counted = `<b>Counted:</b> ${realAbs.length} heavy-volume bar(s) specific to this stock · ${nBlocks} price-turn zones still standing (1H, 2H, 4H, daily) · ${r.profile.length ? "volume traded at each price over 20 days" : "no volume profile"} · ${r.options ? "options big bets (next 2 expiries)" : "no options data"}<br>
     <b>Left out:</b> ${mktAbs} heavy-volume bar(s) that were market-wide · price-turn zones price has already closed through · anything more than 25% away from price · zones wider than 5% are trimmed to the part nearest price`;
+  const L = r.lead;
+  const earnTxt = e => !e ? "No results date on file" : e.days === 0 ? "Results TODAY (" + dayLbl(Date.parse(e.date)) + "): the result can override every zone" : e.days <= 14 ? "Results in " + e.days + " days (" + dayLbl(Date.parse(e.date)) + "): inside your 1 to 3 week window" : "Results in " + e.days + " days (" + dayLbl(Date.parse(e.date)) + "): outside the window";
+  const eDot = e => !e ? "n" : e.days <= 14 ? "a" : "n";
+  const leadHtml = L ? `<div class="lead"><h3>Leading read <span class="newtag">NEW</span> <span style="font-weight:500;color:var(--text-faint)">what is happening now, not just the past</span></h3>
+     <div class="lr"><span class="dot ${eDot(L.earnings)}"></span><span class="k">Results date</span><span class="tx">${earnTxt(L.earnings)}</span></div>
+     ${L.lights.map(l => `<div class="lr"><span class="dot ${l.c}"></span><span class="k">${l.k}</span><span class="tx">${l.t}</span></div>`).join("")}
+     <div class="leanline"><b class="l-${L.lean}">${LEAN[L.lean]}.</b> ${L.lean === "EVENT" ? "Results are due within 2 days, so the other signals matter less until they land." : L.lean === "UP" ? "More of the forward-looking signals point up than down." : L.lean === "DOWN" ? "More of the forward-looking signals point down than up." : "The forward-looking signals disagree, so no clear lean."}
+     <div class="small">Green = supportive, amber = caution, red = against, grey = nothing to judge. Not a forecast; the rules are simple and untested.</div></div></div>` : "";
+  const momHtml = L && L.momentum ? `<h2>Momentum ticks <span class="newtag">NEW</span></h2><div class="other"><b>RSI</b> ${L.momentum.rsi} (${L.momentum.rsi_t}) · <b>MACD</b> ${L.momentum.macd_t}<br><span class="small">Built from price, so these mostly echo what the zones already show. Early hints only; not counted in the lean.</span></div>` : "";
   $("#main").innerHTML = `
    <div class="panel">
      <div class="ph"><div class="t">${r.symbol}</div><span class="chip f-${r.flow}">${FLOW[r.flow]}</span></div>
      <div class="head">${head}</div>
      <div class="idea">${idea}</div>
+     ${leadHtml}
      <div class="zones">
        <div class="zbox b"><h3 class="buy">🟢 Buy zones (buyers stepped in)</h3>${r.zones.buy.length ? r.zones.buy.map(z => zoneHtml(z, cs, "buy")).join("") : "<div class='d'>None found nearby</div>"}</div>
        <div class="zbox s"><h3 class="sell">🔴 Sell zones (sellers waiting)</h3>${r.zones.sell.length ? r.zones.sell.map(z => zoneHtml(z, cs, "sell")).join("") : "<div class='d'>None found nearby</div>"}</div>
@@ -209,6 +245,7 @@ function renderMain(){
      <div id="chart"></div>
      <div class="legend"><span><i style="background:var(--green);opacity:.6"></i>buy zone</span><span><i style="background:var(--red);opacity:.6"></i>sell zone</span></div>
      <details><summary>More detail (technical)</summary>
+       ${momHtml}
        <h2>Price-turn zones (order blocks)</h2><div class="scroll"><table><tr><th>Type</th><th>Chart</th><th>Zone</th><th>Volume</th><th>Age</th><th>Away</th></tr>${brow||"<tr><td>none</td></tr>"}</table></div>
        <h2>Heavy-volume bars</h2><div class="scroll"><table><tr><th>Kind</th><th>When (UTC)</th><th>Zone</th><th>Volume</th><th>Whose</th><th>After</th></tr>${arow||"<tr><td>none</td></tr>"}</table></div>
        <h2>What counted and what was left out</h2>

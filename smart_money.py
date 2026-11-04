@@ -16,12 +16,13 @@ OUT = os.path.join(HERE, "smart_money.json")
 GRAVITY_URL = "https://javed-glitch.github.io/options-gravity-4-week-forward-scan-v3/data.json"
 
 def _gravity():
-    """Options positioning from the gravity board (read only). Empty if unreachable."""
+    """Options positioning and earnings dates from the gravity board (read only). Empty if unreachable."""
     try:
-        return requests.get(GRAVITY_URL, timeout=20).json().get("G", {})
+        j = requests.get(GRAVITY_URL, timeout=20).json()
+        return j.get("G", {}), j.get("E", {})
     except Exception as e:
         print(f"smart_money: gravity board unavailable: {e}")
-        return {}
+        return {}, {}
 
 def _cycle():
     """Cycle bot stage and action per symbol, from the file the cycle job just wrote."""
@@ -130,7 +131,113 @@ def _blocks(df1h, df1d, close):
         res[tf] = keep[-6:]
     return res
 
-def analyse(sym, mkt_rvol, grav, cyc):
+def _daily_close(df1h):
+    """Last hourly close of each session, so the daily series is never a day stale."""
+    return df1h["c"].groupby(df1h.index.date).last()
+
+def _rsi(c, n=14):
+    d = c.diff()
+    ag = d.clip(lower=0).ewm(alpha=1/n, adjust=False).mean()
+    al = (-d.clip(upper=0)).ewm(alpha=1/n, adjust=False).mean()
+    return 100 - 100/(1 + ag/al)
+
+def _macd_hist(c):
+    m = c.ewm(span=12, adjust=False).mean() - c.ewm(span=26, adjust=False).mean()
+    return m - m.ewm(span=9, adjust=False).mean()
+
+def _earnings(sym, earn):
+    """Next earnings date: gravity board first, Yahoo calendar as a fallback."""
+    ds = earn.get(sym)
+    if not ds:
+        try:
+            import yfinance as yf
+            cal = yf.Ticker(sym).calendar
+            ed = cal.get("Earnings Date") if isinstance(cal, dict) else None
+            if ed: ds = str(ed[0])
+        except Exception:
+            ds = None
+    if not ds: return None
+    days = (pd.Timestamp(ds).normalize() - pd.Timestamp.utcnow().tz_localize(None).normalize()).days
+    return {"date": ds, "days": int(days)} if days >= 0 else None
+
+def _lead(sym, df, d1, mdf, rv, last, zones, grav, earn):
+    """Forward-looking strip: options activity, volume at the nearest zone, strength vs market, plus earnings and momentum."""
+    lights = []
+    e = _earnings(sym, earn)
+    # options activity (volume spikes in the two nearest expiries)
+    cv = pv = pv_far = 0.0
+    g = grav.get(sym)
+    if g:
+        for x in sorted(g)[:2]:
+            for sp in (g[x].get("volumeSpikes") or []):
+                v = float(sp.get("volume") or 0)
+                if sp.get("side") == "CALL": cv += v
+                else:
+                    pv += v
+                    if float(sp["strike"]) < last*0.92: pv_far += v
+    if not g or cv + pv == 0:
+        lights.append({"k": "Options", "c": "n", "t": "No unusual options activity"})
+    elif cv >= 1.5*pv:
+        lights.append({"k": "Options", "c": "g", "t": f"Call buying leads ({cv/max(pv,1):.1f}x the puts)"})
+    elif pv >= 1.5*cv:
+        if pv_far >= 0.6*pv:
+            lights.append({"k": "Options", "c": "a", "t": "Heavy put volume, mostly far below price: looks like hedging, not a clear bet"})
+        else:
+            lights.append({"k": "Options", "c": "r", "t": f"Put buying leads ({pv/max(cv,1):.1f}x the calls)"})
+    else:
+        lights.append({"k": "Options", "c": "a", "t": "Calls and puts both active: mixed"})
+    # volume at the nearest zone (last 5 sessions)
+    cand = [(z, "buy") for z in zones["buy"]] + [(z, "sell") for z in zones["sell"]]
+    if cand:
+        z, side = min(cand, key=lambda t: t[0]["dist_pct"])
+        w = df.tail(35); wr = rv.reindex(w.index)
+        hit = (w["l"] <= z["hi"]*1.003) if side == "buy" else (w["h"] >= z["lo"]*0.997)
+        vols = wr[hit].dropna()
+        nm = "buy" if side == "buy" else "sell"
+        if hit.sum() == 0 or vols.empty:
+            lights.append({"k": "Volume at zone", "c": "n", "t": f"Price hasn't reached the nearest {nm} zone ({z['dist_pct']:.1f}% away): nothing to judge yet"})
+        elif vols.max() >= 1.5:
+            lights.append({"k": "Volume at zone", "c": "g" if side == "buy" else "r",
+                           "t": f"{'Buyers' if side == 'buy' else 'Sellers'} showed up: {vols.max():.1f}x normal volume when price hit the {nm} zone"})
+        elif vols.max() < 1.2:
+            lights.append({"k": "Volume at zone", "c": "a", "t": f"Price touched the {nm} zone on thin volume ({vols.max():.1f}x): weak interest"})
+        else:
+            lights.append({"k": "Volume at zone", "c": "n", "t": f"Touched the {nm} zone on about normal volume ({vols.max():.1f}x)"})
+    else:
+        lights.append({"k": "Volume at zone", "c": "n", "t": "No zone nearby to judge"})
+    # strength vs the market, 5 sessions
+    sd, md = _daily_close(df), _daily_close(mdf)
+    j = sd.index.intersection(md.index)
+    if len(j) >= 6:
+        a = float(sd[j].iloc[-1]/sd[j].iloc[-6]-1)*100
+        b = float(md[j].iloc[-1]/md[j].iloc[-6]-1)*100
+        if a - b >= 1.5: lights.append({"k": "Vs market (5d)", "c": "g", "t": f"Leading: {a:+.1f}% vs S&P {b:+.1f}%"})
+        elif a - b <= -1.5: lights.append({"k": "Vs market (5d)", "c": "r", "t": f"Lagging: {a:+.1f}% vs S&P {b:+.1f}%"})
+        else: lights.append({"k": "Vs market (5d)", "c": "n", "t": f"In line: {a:+.1f}% vs S&P {b:+.1f}%"})
+    else:
+        lights.append({"k": "Vs market (5d)", "c": "n", "t": "Not enough data"})
+    # momentum (detail only, not counted in the lean): daily closes topped up from hourly
+    mom = None
+    try:
+        dc = pd.Series(d1["c"].values, index=[t.date() for t in d1.index])
+        dc = dc[~dc.index.duplicated(keep="last")]
+        for dt, v in sd.items():
+            if dt not in dc.index: dc.loc[dt] = v
+        dc = dc.sort_index().astype(float)
+        r = _rsi(dc); mh = _macd_hist(dc)
+        r_up = bool(r.iloc[-1] > r.tail(10).min()+8 and r.iloc[-1] > r.iloc[-4])
+        r_dn = bool(r.iloc[-1] < r.iloc[-4]-5)
+        m_up, m_dn = bool(mh.iloc[-1] > mh.iloc[-2]), bool(mh.iloc[-1] < mh.iloc[-2])
+        mom = {"rsi": round(float(r.iloc[-1])), "rsi_t": "turning up" if r_up else "falling" if r_dn else "flat",
+               "macd_t": ("improving" if m_up else "weakening" if m_dn else "flat") + (", still below zero" if mh.iloc[-1] < 0 else ", above zero")}
+    except Exception:
+        mom = None
+    net = sum(1 if l["c"] == "g" else -1 if l["c"] == "r" else 0 for l in lights)
+    lean = "UP" if net >= 2 else "DOWN" if net <= -2 else "MIXED"
+    if e and e["days"] <= 2: lean = "EVENT"
+    return {"lights": lights, "momentum": mom, "earnings": e, "lean": lean, "net": net}
+
+def analyse(sym, mdf, mkt_rvol, grav, earn, cyc):
     df = cb.fetch_series_yahoo(sym, "1h", 0)
     d1 = cb.fetch_series_yahoo(sym, "1day", 0)
     for d in (df, d1):
@@ -196,7 +303,9 @@ def analyse(sym, mkt_rvol, grav, cyc):
     zones, opt, cycle = _zones(sym, last, flags, blocks, prof, grav, cyc)
     bars = [[int(t.timestamp()*1000), round(float(r.o), 2), round(float(r.h), 2), round(float(r.l), 2),
              round(float(r.c), 2), int(r.v)] for t, r in w.iterrows()]
+    lead = _lead(sym, df, d1, mdf, rv, last, zones, grav, earn)
     return {
+        "lead": lead,
         "symbol": sym, "last": round(last, 2), "ccy": cb.csym(sym) if hasattr(cb, "csym") else "$",
         "bars": bars, "blocks": blocks, "zones": zones, "options": opt, "cycle": cycle, "flow": flow,
         "absorption": flags[-8:], "poc": round(poc, 2),
@@ -211,13 +320,13 @@ def main():
     mdf = cb.fetch_series_yahoo(MARKET, "1h", 0)
     mdf["v"] = pd.to_numeric(mdf["v"], errors="coerce").fillna(0)
     mkt = _rvol(mdf)
-    grav, cyc = _gravity(), _cycle()
+    (grav, earn), cyc = _gravity(), _cycle()
     out = {"generated_at": pd.Timestamp.utcnow().strftime("%Y-%m-%d %H:%M UTC"), "market": MARKET, "results": []}
     for s in cb.SYMBOLS:
         if s in cb.ETF_PAGE_SYMBOLS:      # London ETFs: no US-hours market filter, not the use case
             continue
         try:
-            r = analyse(s, mkt, grav, cyc)
+            r = analyse(s, mdf, mkt, grav, earn, cyc)
             if r: out["results"].append(r)
         except Exception as e:
             print(f"smart_money: {s} skipped: {e}")
