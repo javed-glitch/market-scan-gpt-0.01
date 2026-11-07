@@ -39,7 +39,7 @@
 <header><div class="inner"><h1>Smart Money - Order Blocks</h1><div class="meta"><a href="./">Cycle dashboard</a></div></div></header>
 <div class="wrap">
   <div class="intro" style="border-left:4px solid var(--blue); padding-left:12px"><b>Goal:</b> spot large amounts of money ploughing in (or out of) a stock, to suggest current and future entry and exit zones over a 1 to 3 week horizon, extendable where confidence in the upside holds. <i>Loose note, to be refined.</i></div>
-  <div class="intro">Two versions of the same idea, side by side, so we can compare and keep what works. Both read the same data file, so numbers match; only the presentation and the grouping of signals differ.</div>
+  <div class="intro">Three versions of the same idea, side by side, so we can compare and keep what works. Both read the same data file, so numbers match; only the presentation and the grouping of signals differ.</div>
   <div class="vs">
     <div class="v"><h3>v1 · Technical</h3><div class="sub">Every signal shown separately</div>
       <ul><li>Raw order blocks by timeframe (1H, 2H, 4H, daily)</li><li>Absorption bars, volume profile and anchored VWAP on the chart</li><li>Evidence score and verdict</li></ul>
@@ -47,6 +47,9 @@
     <div class="v"><h3>v2 · Plain</h3><div class="sub">Buy zones and sell zones in everyday words</div>
       <ul><li>Signals merged into buy and sell zones with a 1–3 dot strength</li><li>Plain reasons per zone, options and cycle bot cross-check</li><li>Chart shows only the zones by default; technical detail tucked away</li></ul>
       <a class="btn" href="smart-money-v2.html#APP">Open v2</a></div>
+    <div class="v"><h3>v3 · Plain + confidence <b style="color:var(--amber)">NEW</b></h3><div class="sub">v2 plus Low / Medium / High confidence for entry and exit</div>
+      <ul><li>1 week and 3 to 4 week horizons, on every card</li><li>Lead vs look-back tags on each reason, plus a "wrong if" price</li><li>Everything else is v2; new parts are highlighted</li></ul>
+      <a class="btn" href="smart-money-v3.html#APP">Open v3</a></div>
   </div>
 
   <h2>What each version includes</h2>
