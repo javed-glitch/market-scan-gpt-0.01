@@ -450,7 +450,7 @@ function buildSummary(results){
 const STATE_URL = "https://raw.githubusercontent.com/javed-glitch/market-scan-gpt-0.01/main/cycle_state.json";
 const ACTED_URL = "https://github-datastore-equitydashboards.netlify.app/api/acted";
 const KEY_NS = "hco.cycle.key.v1", LOCAL_NS = "hco.cycle.local.v1";
-let PACE = null, MARKS = {}, PAIRED = false, SYNC_OK = true, LAST_RESULTS = [], PAIR_JUST_DONE = false;
+let PACE = null, MARKS = {}, PAIRED = false, SYNC_OK = true, SYNC_WHY = "", LAST_RESULTS = [], PAIR_JUST_DONE = false, PAIR_NOSTORE = false;
 function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
 function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
 function lsDel(k){ try { localStorage.removeItem(k); } catch(e){} }
@@ -482,18 +482,20 @@ function fetchT(url, opts, ms){
 function pairFromHash(){
   const m = /(?:^|[#&])pair=([A-Za-z0-9_-]{20,128})/.exec(location.hash || "");
   if (!m) return;
-  lsSet(KEY_NS, m[1]); PAIR_JUST_DONE = true;
+  lsSet(KEY_NS, m[1]); PAIR_JUST_DONE = true; PAIR_NOSTORE = (lsGet(KEY_NS) !== m[1]);
   try { history.replaceState(null, "", location.pathname + location.search); } catch(e){}
 }
 async function loadPace(){
-  const key = lsGet(KEY_NS); PAIRED = !!key;
+  const key = lsGet(KEY_NS); PAIRED = !!key; SYNC_WHY = "";
   const st = fetchT(STATE_URL + "?t=" + Date.now()).then(r => r.ok ? r.json() : null).catch(() => null);
-  const mk = key ? fetchT(ACTED_URL, {headers: {"x-key": key}}).then(r => {
-      if (r.status === 401){ lsDel(KEY_NS); PAIRED = false; return null; }
-      return r.ok ? r.json() : null; }).catch(() => null) : Promise.resolve(null);
+  const mk = key ? fetchT(ACTED_URL, {headers: {"x-key": key}}).then(async r => {
+      if (r.status === 401){ lsDel(KEY_NS); PAIRED = false; SYNC_WHY = "key rejected"; return null; }
+      if (!r.ok){ SYNC_WHY = "store error " + r.status; return null; }
+      return r.json(); }).catch(() => { SYNC_WHY = "can't reach the store"; return null; }) : Promise.resolve(null);
   const [s, m] = await Promise.all([st, mk]);
   PACE = (s && s.symbols) ? s : null;
-  if (m && m.marks){ MARKS = m.marks; SYNC_OK = true; } else if (key){ SYNC_OK = false; }
+  if (m && m.marks){ MARKS = m.marks; SYNC_OK = true; lsDel(LOCAL_NS); }   // synced: drop any old marks saved only on this device
+  else if (key && PAIRED){ SYNC_OK = false; if (!SYNC_WHY) SYNC_WHY = "no reply from the store"; }
 }
 function paceStrip(sym){
   const p = PACE && PACE.symbols && PACE.symbols[sym];
@@ -506,7 +508,7 @@ function paceStrip(sym){
   else if (p.status === "capped") msg = `Cap reached · planned ${fmtGBP(planned)} of ${fmtGBP(cap)}`;
   else msg = `Week ${p.weeksActive} in this stage · due this week ${fmtGBP(due)} · planned ${fmtGBP(planned)} of ${fmtGBP(cap)}`;
   if (PACE.week && PACE.week !== wk) msg += ` <span class="pace-old">(schedule from ${PACE.asOf ? PACE.asOf.slice(0,10) : "earlier"})</span>`;
-  const where = !PAIRED ? " · this device" : (!SYNC_OK ? " · not synced" : "");
+  const where = !PAIRED ? " · this device" : (!SYNC_OK ? " · not synced" + (SYNC_WHY ? " (" + SYNC_WHY + ")" : "") : "");
   const btn = a ? `<button type="button" class="pace-btn on" data-sym="${sym}" title="Tap to undo">Acted ✓ ${shortDate(a)}${where}</button>`
                 : `<button type="button" class="pace-btn" data-sym="${sym}">Mark acted${where}</button>`;
   return `<div class="pace" data-pace="${sym}"><span>${msg}</span>${btn}</div>`;
@@ -531,6 +533,7 @@ document.addEventListener("click", async (ev) => {
   refreshPace();
 });
 pairFromHash();
+window.addEventListener("hashchange", () => { pairFromHash(); if (PAIR_JUST_DONE) load(); });   // pairing link opened in a tab that already has the dashboard
 
 async function load(){
   document.getElementById("status").style.display = "block";
@@ -553,7 +556,13 @@ async function load(){
     document.getElementById("cycleSummary").innerHTML = buildCycleSummary(results);
     document.getElementById("grid").innerHTML = results.map(buildTile).join("");
     document.getElementById("status").style.display = "none";
-    if (PAIR_JUST_DONE){ PAIR_JUST_DONE = false; const n = document.createElement("div"); n.id = "pairNote"; n.textContent = (PAIRED && SYNC_OK) ? "Paired: acted marks now sync across your devices" : "Pairing link not accepted. Acted marks stay on this device."; if (!(PAIRED && SYNC_OK)) { n.style.background = "var(--amber-bg)"; n.style.color = "var(--amber)"; } document.body.appendChild(n); setTimeout(() => n.remove(), 6000); }
+    if (PAIR_JUST_DONE){ PAIR_JUST_DONE = false; const n = document.createElement("div"); n.id = "pairNote"; const okp = PAIRED && SYNC_OK;
+      n.textContent = okp ? "Paired: acted marks now sync across your devices"
+        : PAIR_NOSTORE ? "This browser would not save the pairing key (private mode?). Use a normal tab."
+        : SYNC_WHY === "key rejected" ? "Pairing link not accepted: the key was rejected. Ask for a fresh link."
+        : "Key saved, but " + (SYNC_WHY || "the store did not answer") + ". Marks stay on this device until it syncs.";
+      if (!okp){ n.style.background = "var(--amber-bg)"; n.style.color = "var(--amber)"; }
+      document.body.appendChild(n); setTimeout(() => n.remove(), 6000); }
   } catch (e) {
     document.getElementById("status").textContent = "Couldn't load dashboard data: " + e.message;
   }
