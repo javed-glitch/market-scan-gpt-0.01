@@ -57,8 +57,8 @@
   .panel h2{font-size:15px; font-weight:700; margin:0 0 6px}
   .panel .intro{color:var(--text-dim); font-size:12.5px; line-height:1.6; max-width:760px; margin:0 0 14px}
 
-  .cyc-head{display:grid; grid-template-columns:140px 110px 130px 1fr; gap:10px; padding:0 0 8px; border-bottom:1px solid var(--border); color:var(--text-faint); font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em}
-  .cyc-row{display:grid; grid-template-columns:140px 110px 130px 1fr; gap:10px; align-items:center; padding:9px 0; border-bottom:1px solid var(--border)}
+  .cyc-head{display:grid; grid-template-columns:140px 110px 130px 1fr 1fr; gap:10px; padding:0 0 8px; border-bottom:1px solid var(--border); color:var(--text-faint); font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em}
+  .cyc-row{display:grid; grid-template-columns:140px 110px 130px 1fr 1fr; gap:10px; align-items:center; padding:9px 0; border-bottom:1px solid var(--border)}
   .cyc-row:last-child{border-bottom:none}
   .cyc-stage{font-weight:600; font-size:13px}
   .cyc-trigger{color:var(--text-dim); font-size:12px}
@@ -69,6 +69,8 @@
     .cyc-head{display:none}
     .cyc-row{grid-template-columns:1fr; gap:4px; padding:10px 0}
     .cyc-trigger::before{content:"Trigger: "; color:var(--text-faint)}
+    .cyc-inv.none{display:none}
+    .cyc-inv.chips::before{content:"Invest today:"; color:var(--text-faint); font-size:11px; align-self:center}
   }
 
   .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:14px}
@@ -120,6 +122,43 @@
   .override .reason{font-size:10.5px; color:var(--text-dim); margin-top:2px}
 
   footer{text-align:center; color:var(--text-faint); font-size:11px; padding-top:30px}
+  /* ticker colours (HCO-77): 12 hues, text contrast >= 6.2:1 on both surfaces */
+  :root{ --tk0:#eb8495; --tk1:#58e4b5; --tk2:#e07bea; --tk3:#c1e458; --tk4:#8d9dec; --tk5:#e58d61; --tk6:#58d8e4; --tk7:#ea80be; --tk8:#58e458; --tk9:#b891ed; --tk10:#e4c158; --tk11:#58aae4;}
+  @media (prefers-color-scheme: light){:root{ --tk0:#ab1c34; --tk1:#106046; --tk2:#931a9e; --tk3:#495c0f; --tk4:#213dca; --tk5:#914018; --tk6:#105e65; --tk7:#a21a6a; --tk8:#106510; --tk9:#6721ca; --tk10:#695311; --tk11:#175b8c;}}
+  .tk0{--tk:var(--tk0)}
+  .tk1{--tk:var(--tk1)}
+  .tk2{--tk:var(--tk2)}
+  .tk3{--tk:var(--tk3)}
+  .tk4{--tk:var(--tk4)}
+  .tk5{--tk:var(--tk5)}
+  .tk6{--tk:var(--tk6)}
+  .tk7{--tk:var(--tk7)}
+  .tk8{--tk:var(--tk8)}
+  .tk9{--tk:var(--tk9)}
+  .tk10{--tk:var(--tk10)}
+  .tk11{--tk:var(--tk11)}
+
+  /* HCO-77 addition 1: "By symbol" toggles in the strip */
+  .summary .card details{margin-top:8px}
+  .summary .card summary{cursor:pointer; color:var(--text-dim); font-size:11px}
+  .summary .card summary:hover{color:var(--text)}
+  .by-list{list-style:none; margin:6px 0 0; padding:0}
+  .by-list li{display:flex; justify-content:space-between; gap:8px; font-family:'IBM Plex Mono',monospace; font-size:11.5px; padding:2px 0}
+  .by-list a{color:var(--text); text-decoration:none; font-weight:600}
+  .by-list a:hover{text-decoration:underline}
+
+  /* HCO-77 addition 2: ticker links, card highlight */
+  .tile{scroll-margin-top:12px}
+  .tile:focus{outline:none}
+  .tile.hl{outline:2px solid var(--blue); outline-offset:3px}
+  a.cyc-sym{color:var(--tk); border-color:var(--tk); text-decoration:none}
+  a.cyc-sym:hover{background:color-mix(in srgb, var(--tk) 16%, var(--surface2))}
+
+  /* HCO-77 v2: INVEST TODAY column (ADD and DOUBLE DOWN stages only) */
+  .cyc-inv.none{color:var(--text-faint)}
+  .cyc-ia{font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600; color:var(--tk); background:var(--surface2); border:1px solid var(--tk); border-radius:5px; padding:2px 7px; text-decoration:none; white-space:nowrap}
+  .cyc-ia:hover{background:color-mix(in srgb, var(--tk) 16%, var(--surface2))}
+  .cyc-inv.chips{display:flex; flex-wrap:wrap; gap:5px}
 </style>
 </head>
 <body>
@@ -187,19 +226,68 @@ const CAT_COLORS = {
   "DOUBLE DOWN":["var(--purple)","var(--purple-bg)"],
 };
 
+// HCO-77: card ids, stable ticker colours, jump-to-card
+function cardId(sym){ return "card-" + String(sym).replace(/[^A-Za-z0-9_-]/g, "_"); }
+// HCO-77 v2: amount to invest today, only for symbols in an ADD or DOUBLE DOWN stage
+function isAct(r){ const z = CYCLE_ACTION_MAP[r.stage_name]; return z === "ADD" || z === "DOUBLE DOWN"; }
+const TK_N = 12;
+function tkHash(s){ let h = 2166136261; for (const ch of s){ h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return (h >>> 0) % TK_N; }
+// Same ticker -> same colour on every render; only if two tickers in one stage row
+// hash to the same colour does the alphabetically later one take the next free colour.
+function tkClasses(syms){
+  const used = new Set(), out = {};
+  for (const s of [...syms].sort()){
+    let i = tkHash(s);
+    while (used.has(i)) i = (i + 1) % TK_N;
+    used.add(i); out[s] = "tk" + i;
+  }
+  return out;
+}
+function goCard(id){
+  const el = document.getElementById(id);
+  if (!el) return false;
+  const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  el.scrollIntoView({behavior: calm ? "auto" : "smooth", block: "start"});
+  el.focus({preventScroll: true});
+  el.classList.add("hl");
+  clearTimeout(el._hl);
+  el._hl = setTimeout(() => el.classList.remove("hl"), 2000);
+  return true;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest("a[data-card]");
+  if (a && goCard(a.dataset.card)) e.preventDefault();
+});
+const openBy = new Set();   // which "By symbol" toggles are open, kept across re-renders
+document.addEventListener("toggle", e => {
+  const d = e.target;
+  if (d.dataset && d.dataset.by) d.open ? openBy.add(d.dataset.by) : openBy.delete(d.dataset.by);
+}, true);
+function bySymbol(results, key, which){
+  const rows = results.filter(r => r[key] > 0)
+    .sort((a, b) => b[key] - a[key] || (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0));
+  if (!rows.length) return "";
+  return `<details data-by="${which}" ${openBy.has(which) ? "open" : ""}><summary>By symbol</summary><ul class="by-list">` +
+    rows.map(r => `<li><a href="#${cardId(r.symbol)}" data-card="${cardId(r.symbol)}">${r.symbol}</a><span class="amt">${fmtGBP(r[key])}</span></li>`).join("") +
+    `</ul></details>`;
+}
+
 function buildCycleSummary(results){
-  const byStage = {};
-  for (const r of results) (byStage[r.stage_name] = byStage[r.stage_name] || []).push(r.symbol);
+  const byStage = {}, byRes = {};
+  for (const r of results){ (byStage[r.stage_name] = byStage[r.stage_name] || []).push(r.symbol); byRes[r.symbol] = r; }
 
   const rows = CYCLE_TABLE_ROWS.map(([stage, trigger]) => {
     const cat = CYCLE_ACTION_MAP[stage];
     const [catFg, catBg] = CAT_COLORS[cat];
     const syms = byStage[stage];
+    const tk = syms ? tkClasses(syms) : {};
+    const inv = syms ? syms.filter(x => isAct(byRes[x])) : [];
     return `<div class="cyc-row">
       <div class="cyc-stage">${stage}</div>
       <div class="cyc-trigger mono">${trigger}</div>
       <div class="cyc-cat"><span class="badge" style="background:${catBg};color:${catFg}">${cat}</span></div>
-      <div class="cyc-syms">${syms ? syms.map(s=>`<span class="cyc-sym">${s}</span>`).join("") : ""}</div>
+      <div class="cyc-syms">${syms ? syms.map(s=>`<a class="cyc-sym ${tk[s]}" href="#${cardId(s)}" data-card="${cardId(s)}">${s}</a>`).join("") : ""}</div>
+      ${inv.length ? `<div class="cyc-inv chips">${inv.map(s=>`<a class="cyc-ia ${tk[s]}" href="#${cardId(s)}" data-card="${cardId(s)}" data-inv="${s}">${s} ${fmtGBP(byRes[s].signal_today)}</a>`).join("")}</div>` : `<div class="cyc-inv none">&ndash;</div>`}
     </div>`;
   }).join("");
 
@@ -207,7 +295,7 @@ function buildCycleSummary(results){
     <h2>Cycle summary</h2>
     <p class="intro">Every stage top to bottom, its real trigger formula, and which category it maps to. Any ticker currently sitting in a stage is listed under it — this is the fastest way to see where everything stands at a glance, before drilling into a ticker's own card below.</p>
     <div class="cyc-head">
-      <div>Stage</div><div>Trigger</div><div>Category</div><div>Tickers here now</div>
+      <div>Stage</div><div>Trigger</div><div>Category</div><div>Tickers here now</div><div>Invest today</div>
     </div>
     ${rows}
   </div>`;
@@ -275,7 +363,7 @@ function buildTile(r){
   const [ovFg, ovBg] = ovColors[ov.status] || ovColors.DENIED;
   const ovLabel = {PERMITTED:"LIMIT ORDER PERMITTED",HIGH_CONVICTION:"HIGH CONVICTION LIMIT",DOUBLE_CONFIRM:"DOUBLE CONFIRMATION",DENIED:"NO OVERRIDE — WAIT"}[ov.status] || "NO OVERRIDE — WAIT";
 
-  return `<div class="tile ${isTrigger?"trigger":""}">
+  return `<div class="tile ${isTrigger?"trigger":""}" id="${cardId(r.symbol)}" tabindex="-1">
     <div class="t-head">
       <div><span class="sym">${r.symbol}</span><span class="px">${cs}${r.close.toFixed(2)}</span></div>
       <div class="pct">${r.pct_from_high.toFixed(1)}% from 52W</div>
@@ -339,13 +427,13 @@ function buildSummary(results){
   const trigs = results.filter(r=>r.tactical_action==="BUY").map(r=>r.symbol);
   const ovActs = results.filter(r=>["PERMITTED","HIGH_CONVICTION","DOUBLE_CONFIRM"].includes((r.override||{}).status)).map(r=>r.symbol);
   const items = [
-    ["Core signals today", fmtGBP(tc)],
-    ["Tactical signals today", fmtGBP(tt)],
+    ["Core signals today", fmtGBP(tc), bySymbol(results, "core_signal", "core")],
+    ["Tactical signals today", fmtGBP(tt), bySymbol(results, "tactical_signal", "tactical")],
     ["Total capacity", fmtGBP(cap)],
     ["OB overrides active", ovActs.length ? ovActs.join(", ") : "None"],
     ["Tactical triggers", trigs.length ? trigs.join(", ") : "NONE — WAIT"],
   ];
-  return items.map(([l,v]) => `<div class="card"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join("");
+  return items.map(([l,v,x]) => `<div class="card"><div class="lbl">${l}</div><div class="val">${v}</div>${x || ""}</div>`).join("");
 }
 
 async function load(){
