@@ -159,6 +159,12 @@
   .cyc-ia{font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600; color:var(--tk); background:var(--surface2); border:1px solid var(--tk); border-radius:5px; padding:2px 7px; text-decoration:none; white-space:nowrap}
   .cyc-ia:hover{background:color-mix(in srgb, var(--tk) 16%, var(--surface2))}
   .cyc-inv.chips{display:flex; flex-wrap:wrap; gap:5px}
+  /* weekly pace + acted marks */
+  .pace{display:flex; justify-content:space-between; align-items:center; gap:8px; margin:6px 0 2px; padding:6px 8px; border-radius:8px; background:var(--surface2); font-size:12px; color:var(--text-dim)}
+  .pace .pace-old{color:var(--text-faint)}
+  .pace-btn{font:inherit; font-size:12px; padding:4px 10px; border-radius:999px; border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer; white-space:nowrap}
+  .pace-btn.on{background:var(--green-bg); color:var(--green); border-color:transparent}
+  #pairNote{position:fixed; left:50%; bottom:18px; transform:translateX(-50%); background:var(--green-bg); color:var(--green); padding:8px 14px; border-radius:999px; font-size:13px; z-index:50}
 </style>
 </head>
 <body>
@@ -287,7 +293,7 @@ function buildCycleSummary(results){
       <div class="cyc-trigger mono">${trigger}</div>
       <div class="cyc-cat"><span class="badge" style="background:${catBg};color:${catFg}">${cat}</span></div>
       <div class="cyc-syms">${syms ? syms.map(s=>`<a class="cyc-sym ${tk[s]}" href="#${cardId(s)}" data-card="${cardId(s)}">${s}</a>`).join("") : ""}</div>
-      ${inv.length ? `<div class="cyc-inv chips">${inv.map(s=>`<a class="cyc-ia ${tk[s]}" href="#${cardId(s)}" data-card="${cardId(s)}" data-inv="${s}">${s} ${fmtGBP(byRes[s].signal_today)}</a>`).join("")}</div>` : `<div class="cyc-inv none">&ndash;</div>`}
+      ${inv.length ? `<div class="cyc-inv chips">${inv.map(s=>`<a class="cyc-ia ${tk[s]}" href="#${cardId(s)}" data-card="${cardId(s)}" data-inv="${s}">${s} ${fmtGBP(byRes[s].signal_today)}${actedThisWeek(s) ? " ✓" : ""}</a>`).join("")}</div>` : `<div class="cyc-inv none">&ndash;</div>`}
     </div>`;
   }).join("");
 
@@ -370,6 +376,7 @@ function buildTile(r){
     </div>
     <div class="badges">${badges}</div>
     <div class="banner" style="background:${actBg};color:${actFg}">${actTxt}</div>
+    ${paceStrip(r.symbol)}
     <div class="twocol">
       <div class="box">
         <div class="lbl">Core £${r.core_total}</div>
@@ -436,6 +443,95 @@ function buildSummary(results){
   return items.map(([l,v,x]) => `<div class="card"><div class="lbl">${l}</div><div class="val">${v}</div>${x || ""}</div>`).join("");
 }
 
+/* ---- Weekly pace and "acted" marks (added 20 Nov 2026) ----
+   cycle_state.json (written by the cloud job, schedule only) says what is due this week; acted marks sit in a small private store,
+   reached with a key stored on this device after opening the private pairing link once. Everything here fails quietly: if either
+   fetch fails the page simply shows no pace line. Marks hold only symbol, week and date. */
+const STATE_URL = "https://raw.githubusercontent.com/javed-glitch/market-scan-gpt-0.01/main/cycle_state.json";
+const ACTED_URL = "https://hco-cycle-acted.netlify.app/api/acted";
+const KEY_NS = "hco.cycle.key.v1", LOCAL_NS = "hco.cycle.local.v1";
+let PACE = null, MARKS = {}, PAIRED = false, SYNC_OK = true, LAST_RESULTS = [], PAIR_JUST_DONE = false;
+function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+function lsDel(k){ try { localStorage.removeItem(k); } catch(e){} }
+function ukDate(){ return new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/London",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date()); }
+function isoWeek(ds){
+  const [y,m,d] = ds.split("-").map(Number), dt = new Date(Date.UTC(y,m-1,d)), day = (dt.getUTCDay()+6)%7;
+  dt.setUTCDate(dt.getUTCDate()-day+3);
+  const wy = dt.getUTCFullYear(), jan4 = new Date(Date.UTC(wy,0,4));
+  const wk = 1 + Math.round(((dt - jan4)/86400000 - 3 + ((jan4.getUTCDay()+6)%7)) / 7);
+  return wy + "-W" + String(wk).padStart(2,"0");
+}
+function shortDate(ds){ const [y,m,d] = ds.split("-").map(Number); return new Date(Date.UTC(y,m-1,d)).toLocaleDateString("en-GB",{day:"numeric",month:"short",timeZone:"UTC"}); }
+function localMarks(){ try { return JSON.parse(lsGet(LOCAL_NS) || "{}") || {}; } catch(e){ return {}; } }
+function setLocal(wk, sym, date){
+  const m = localMarks(); m[wk] = m[wk] || {};
+  if (date === null){ delete m[wk][sym]; if (!Object.keys(m[wk]).length) delete m[wk]; } else m[wk][sym] = date;
+  const ks = Object.keys(m).sort(); while (ks.length > 12) delete m[ks.shift()];
+  lsSet(LOCAL_NS, JSON.stringify(m));
+}
+function actedThisWeek(sym){
+  const wk = isoWeek(ukDate());
+  const src = (PAIRED && SYNC_OK) ? MARKS : localMarks();
+  return (src[wk] && src[wk][sym]) || null;
+}
+function fetchT(url, opts, ms){
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ms || 6000);
+  return fetch(url, Object.assign({signal: c.signal, cache: "no-store"}, opts || {})).finally(() => clearTimeout(t));
+}
+function pairFromHash(){
+  const m = /(?:^|[#&])pair=([A-Za-z0-9_-]{20,128})/.exec(location.hash || "");
+  if (!m) return;
+  lsSet(KEY_NS, m[1]); PAIR_JUST_DONE = true;
+  try { history.replaceState(null, "", location.pathname + location.search); } catch(e){}
+}
+async function loadPace(){
+  const key = lsGet(KEY_NS); PAIRED = !!key;
+  const st = fetchT(STATE_URL + "?t=" + Date.now()).then(r => r.ok ? r.json() : null).catch(() => null);
+  const mk = key ? fetchT(ACTED_URL, {headers: {"x-key": key}}).then(r => {
+      if (r.status === 401){ lsDel(KEY_NS); PAIRED = false; return null; }
+      return r.ok ? r.json() : null; }).catch(() => null) : Promise.resolve(null);
+  const [s, m] = await Promise.all([st, mk]);
+  PACE = (s && s.symbols) ? s : null;
+  if (m && m.marks){ MARKS = m.marks; SYNC_OK = true; } else if (key){ SYNC_OK = false; }
+}
+function paceStrip(sym){
+  const p = PACE && PACE.symbols && PACE.symbols[sym];
+  if (!p) return "";
+  const wk = isoWeek(ukDate()), a = actedThisWeek(sym);
+  const planned = (p.plannedCore || 0) + (p.plannedTactical || 0), cap = (p.capCore || 0) + (p.capTactical || 0);
+  const due = p.dueThisWeek ? p.dueThisWeek.total : 0;
+  let msg;
+  if (p.status === "paused") msg = "Paused: not in ADD or DOUBLE DOWN today";
+  else if (p.status === "capped") msg = `Cap reached · planned ${fmtGBP(planned)} of ${fmtGBP(cap)}`;
+  else msg = `Week ${p.weeksActive} in this stage · due this week ${fmtGBP(due)} · planned ${fmtGBP(planned)} of ${fmtGBP(cap)}`;
+  if (PACE.week && PACE.week !== wk) msg += ` <span class="pace-old">(schedule from ${PACE.asOf ? PACE.asOf.slice(0,10) : "earlier"})</span>`;
+  const where = !PAIRED ? " · this device" : (!SYNC_OK ? " · not synced" : "");
+  const btn = a ? `<button type="button" class="pace-btn on" data-sym="${sym}" title="Tap to undo">Acted ✓ ${shortDate(a)}${where}</button>`
+                : `<button type="button" class="pace-btn" data-sym="${sym}">Mark acted${where}</button>`;
+  return `<div class="pace" data-pace="${sym}"><span>${msg}</span>${btn}</div>`;
+}
+function refreshPace(){
+  document.querySelectorAll(".pace[data-pace]").forEach(el => { el.outerHTML = paceStrip(el.getAttribute("data-pace")); });
+  const cs = document.getElementById("cycleSummary");
+  if (cs && LAST_RESULTS.length) cs.innerHTML = buildCycleSummary(LAST_RESULTS);
+}
+document.addEventListener("click", async (ev) => {
+  const b = ev.target.closest && ev.target.closest(".pace-btn");
+  if (!b) return;
+  ev.preventDefault();
+  const sym = b.getAttribute("data-sym"), wk = isoWeek(ukDate()), was = actedThisWeek(sym), date = was ? null : ukDate();
+  setLocal(wk, sym, date);
+  if (PAIRED){
+    try {
+      const r = await fetchT(ACTED_URL, {method: "PUT", headers: {"x-key": lsGet(KEY_NS), "content-type": "application/json"}, body: JSON.stringify({symbol: sym, week: wk, date: date})});
+      if (r.ok){ const j = await r.json(); if (j && j.marks) MARKS = j.marks; SYNC_OK = true; } else SYNC_OK = false;
+    } catch(e){ SYNC_OK = false; }
+  }
+  refreshPace();
+});
+pairFromHash();
+
 async function load(){
   document.getElementById("status").style.display = "block";
   document.getElementById("status").textContent = "Loading cycle_data.json…";
@@ -447,6 +543,8 @@ async function load(){
     const data = await res.json();
     const results = data.results || [];
     if (!results.length) throw new Error("No results in feed");
+    LAST_RESULTS = results;
+    try { await loadPace(); } catch(e){}
 
     document.getElementById("genAt").textContent = "Generated " + data.generated_at;
     document.getElementById("stagebar").innerHTML = buildStagebar(results);
@@ -455,6 +553,7 @@ async function load(){
     document.getElementById("cycleSummary").innerHTML = buildCycleSummary(results);
     document.getElementById("grid").innerHTML = results.map(buildTile).join("");
     document.getElementById("status").style.display = "none";
+    if (PAIR_JUST_DONE){ PAIR_JUST_DONE = false; const n = document.createElement("div"); n.id = "pairNote"; n.textContent = (PAIRED && SYNC_OK) ? "Paired: acted marks now sync across your devices" : "Pairing link not accepted. Acted marks stay on this device."; if (!(PAIRED && SYNC_OK)) { n.style.background = "var(--amber-bg)"; n.style.color = "var(--amber)"; } document.body.appendChild(n); setTimeout(() => n.remove(), 6000); }
   } catch (e) {
     document.getElementById("status").textContent = "Couldn't load dashboard data: " + e.message;
   }
