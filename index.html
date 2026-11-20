@@ -448,7 +448,7 @@ function buildSummary(results){
    reached with a key stored on this device after opening the private pairing link once. Everything here fails quietly: if either
    fetch fails the page simply shows no pace line. Marks hold only symbol, week and date. */
 const STATE_URL = "https://raw.githubusercontent.com/javed-glitch/market-scan-gpt-0.01/main/cycle_state.json";
-const ACTED_URL = "https://hco-cycle-acted.netlify.app/api/acted";
+const ACTED_URL = "https://github-datastore-equitydashboards.netlify.app/api/acted";
 const KEY_NS = "hco.cycle.key.v1", LOCAL_NS = "hco.cycle.local.v1";
 let PACE = null, MARKS = {}, PAIRED = false, SYNC_OK = true, LAST_RESULTS = [], PAIR_JUST_DONE = false;
 function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
