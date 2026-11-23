@@ -1,5 +1,5 @@
 {
- "asOf": "2026-11-23T15:20:01Z",
+ "asOf": "2026-11-23T22:52:15Z",
  "note": "Schedule only, derived from the market scan. Tracking began 2026-11-20; earlier weeks are not counted.",
  "symbols": {
   "AMAT": {
@@ -45,34 +45,6 @@
    ],
    "weeksActive": 2,
    "zone": "ADD"
-  },
-  "AMD": {
-   "capCore": 1500,
-   "capTactical": 1500,
-   "dueThisWeek": {
-    "core": 450,
-    "tactical": 0,
-    "total": 450
-   },
-   "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-20",
-   "outRuns": 1,
-   "plannedCore": 450,
-   "plannedTactical": 0,
-   "stage": "Hope",
-   "status": "paused",
-   "tranches": [
-    {
-     "core": 450,
-     "plannedCore": 450,
-     "plannedTactical": 0,
-     "tactical": 0,
-     "week": "2026-W47",
-     "zone": "ADD"
-    }
-   ],
-   "weeksActive": 1,
-   "zone": "HOLD"
   },
   "APP": {
    "capCore": 1500,
@@ -218,78 +190,6 @@
    "weeksActive": 2,
    "zone": "ADD"
   },
-  "ISUS": {
-   "capCore": 1500,
-   "capTactical": 1500,
-   "dueThisWeek": {
-    "core": 450,
-    "tactical": 450,
-    "total": 900
-   },
-   "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-20",
-   "outRuns": 1,
-   "plannedCore": 450,
-   "plannedTactical": 450,
-   "stage": "Optimism",
-   "status": "paused",
-   "tranches": [
-    {
-     "core": 225,
-     "plannedCore": 225,
-     "plannedTactical": 0,
-     "tactical": 0,
-     "week": "2026-W47",
-     "zone": "ADD"
-    },
-    {
-     "core": 225,
-     "plannedCore": 225,
-     "plannedTactical": 450,
-     "tactical": 450,
-     "week": "2026-W47",
-     "zone": "DOUBLE DOWN"
-    }
-   ],
-   "weeksActive": 1,
-   "zone": "HOLD"
-  },
-  "ISWD": {
-   "capCore": 1500,
-   "capTactical": 1500,
-   "dueThisWeek": {
-    "core": 413,
-    "tactical": 450,
-    "total": 863
-   },
-   "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-20",
-   "outRuns": 1,
-   "plannedCore": 413,
-   "plannedTactical": 450,
-   "stage": "Anxiety",
-   "status": "paused",
-   "tranches": [
-    {
-     "core": 188,
-     "plannedCore": 188,
-     "plannedTactical": 0,
-     "tactical": 0,
-     "week": "2026-W47",
-     "zone": "ADD"
-    },
-    {
-     "core": 225,
-     "plannedCore": 225,
-     "plannedTactical": 450,
-     "tactical": 450,
-     "week": "2026-W47",
-     "zone": "DOUBLE DOWN"
-    }
-   ],
-   "weeksActive": 1,
-   "zone": "HOLD"
-  },
   "MRVL": {
    "capCore": 1500,
    "capTactical": 1500,
@@ -414,34 +314,6 @@
    "weeksActive": 2,
    "zone": "ADD"
   },
-  "PLTR": {
-   "capCore": 1500,
-   "capTactical": 1500,
-   "dueThisWeek": {
-    "core": 225,
-    "tactical": 1500,
-    "total": 1725
-   },
-   "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-20",
-   "outRuns": 1,
-   "plannedCore": 225,
-   "plannedTactical": 1500,
-   "stage": "Optimism",
-   "status": "paused",
-   "tranches": [
-    {
-     "core": 225,
-     "plannedCore": 225,
-     "plannedTactical": 1500,
-     "tactical": 1500,
-     "week": "2026-W47",
-     "zone": "ADD"
-    }
-   ],
-   "weeksActive": 1,
-   "zone": "HOLD"
-  },
   "SMGB": {
    "capCore": 1500,
    "capTactical": 1500,
@@ -477,90 +349,6 @@
    ],
    "weeksActive": 2,
    "zone": "ADD"
-  },
-  "TSLA": {
-   "capCore": 1500,
-   "capTactical": 1500,
-   "dueThisWeek": {
-    "core": 225,
-    "tactical": 900,
-    "total": 1125
-   },
-   "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-20",
-   "outRuns": 1,
-   "plannedCore": 225,
-   "plannedTactical": 900,
-   "stage": "Optimism",
-   "status": "paused",
-   "tranches": [
-    {
-     "core": 225,
-     "plannedCore": 225,
-     "plannedTactical": 900,
-     "tactical": 900,
-     "week": "2026-W47",
-     "zone": "ADD"
-    }
-   ],
-   "weeksActive": 1,
-   "zone": "HOLD"
-  },
-  "VUSA": {
-   "capCore": 1500,
-   "capTactical": 1500,
-   "dueThisWeek": {
-    "core": 225,
-    "tactical": 450,
-    "total": 675
-   },
-   "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-20",
-   "outRuns": 1,
-   "plannedCore": 225,
-   "plannedTactical": 450,
-   "stage": "Optimism",
-   "status": "paused",
-   "tranches": [
-    {
-     "core": 225,
-     "plannedCore": 225,
-     "plannedTactical": 450,
-     "tactical": 450,
-     "week": "2026-W47",
-     "zone": "DOUBLE DOWN"
-    }
-   ],
-   "weeksActive": 1,
-   "zone": "HOLD"
-  },
-  "ZETA": {
-   "capCore": 1500,
-   "capTactical": 1500,
-   "dueThisWeek": {
-    "core": 450,
-    "tactical": 0,
-    "total": 450
-   },
-   "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-20",
-   "outRuns": 1,
-   "plannedCore": 450,
-   "plannedTactical": 0,
-   "stage": "Optimism",
-   "status": "paused",
-   "tranches": [
-    {
-     "core": 450,
-     "plannedCore": 450,
-     "plannedTactical": 0,
-     "tactical": 0,
-     "week": "2026-W47",
-     "zone": "ADD"
-    }
-   ],
-   "weeksActive": 1,
-   "zone": "HOLD"
   }
  },
  "version": 1,
