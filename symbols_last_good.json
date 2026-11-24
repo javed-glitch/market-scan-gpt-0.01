@@ -53,7 +53,7 @@
     "options",
     "intraday"
    ],
-   "group": "Satellites",
+   "group": "Swing-eligible",
    "sym": "AMAT"
   },
   {
@@ -89,7 +89,7 @@
     "options",
     "intraday"
    ],
-   "group": "Swing-eligible",
+   "group": "Satellites",
    "sym": "GOOGL"
   },
   {
@@ -109,7 +109,7 @@
     "options",
     "intraday"
    ],
-   "group": "Watch",
+   "group": "Satellites",
    "sym": "BE"
   },
   {
@@ -174,5 +174,5 @@
    "yahoo": "SMGB.L"
   }
  ],
- "updated": "2026-11-01"
+ "updated": "2026-11-23"
 }
