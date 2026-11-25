@@ -1,5 +1,5 @@
 {
- "asOf": "2026-11-24T21:29:32Z",
+ "asOf": "2026-11-25T11:02:20Z",
  "note": "Schedule only, derived from the market scan. Tracking began 2026-11-20; earlier weeks are not counted.",
  "symbols": {
   "AMAT": {
@@ -11,7 +11,7 @@
     "total": 225
    },
    "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-24",
+   "lastSeen": "2026-11-25",
    "outRuns": 0,
    "plannedCore": 675,
    "plannedTactical": 1500,
@@ -55,7 +55,7 @@
     "total": 225
    },
    "episodeStart": "2026-11-24",
-   "lastSeen": "2026-11-24",
+   "lastSeen": "2026-11-25",
    "outRuns": 0,
    "plannedCore": 225,
    "plannedTactical": 0,
@@ -83,7 +83,7 @@
     "total": 225
    },
    "episodeStart": "2026-11-23",
-   "lastSeen": "2026-11-24",
+   "lastSeen": "2026-11-25",
    "outRuns": 0,
    "plannedCore": 225,
    "plannedTactical": 0,
@@ -111,7 +111,7 @@
     "total": 225
    },
    "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-24",
+   "lastSeen": "2026-11-25",
    "outRuns": 0,
    "plannedCore": 450,
    "plannedTactical": 0,
@@ -147,7 +147,7 @@
     "total": 225
    },
    "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-24",
+   "lastSeen": "2026-11-25",
    "outRuns": 0,
    "plannedCore": 675,
    "plannedTactical": 1500,
@@ -191,7 +191,7 @@
     "total": 225
    },
    "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-24",
+   "lastSeen": "2026-11-25",
    "outRuns": 0,
    "plannedCore": 450,
    "plannedTactical": 1500,
@@ -227,7 +227,7 @@
     "total": 225
    },
    "episodeStart": "2026-11-24",
-   "lastSeen": "2026-11-24",
+   "lastSeen": "2026-11-25",
    "outRuns": 0,
    "plannedCore": 225,
    "plannedTactical": 0,
@@ -250,16 +250,16 @@
    "capCore": 1500,
    "capTactical": 1500,
    "dueThisWeek": {
-    "core": 225,
-    "tactical": 0,
-    "total": 225
+    "core": 450,
+    "tactical": 450,
+    "total": 900
    },
    "episodeStart": "2026-11-24",
-   "lastSeen": "2026-11-24",
+   "lastSeen": "2026-11-25",
    "outRuns": 0,
-   "plannedCore": 225,
-   "plannedTactical": 0,
-   "stage": "Denial",
+   "plannedCore": 450,
+   "plannedTactical": 450,
+   "stage": "Capitulation",
    "status": "due",
    "tranches": [
     {
@@ -269,10 +269,18 @@
      "tactical": 0,
      "week": "2026-W48",
      "zone": "ADD"
+    },
+    {
+     "core": 225,
+     "plannedCore": 225,
+     "plannedTactical": 450,
+     "tactical": 450,
+     "week": "2026-W48",
+     "zone": "DOUBLE DOWN"
     }
    ],
    "weeksActive": 1,
-   "zone": "ADD"
+   "zone": "DOUBLE DOWN"
   },
   "MRVL": {
    "capCore": 1500,
@@ -283,7 +291,7 @@
     "total": 225
    },
    "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-24",
+   "lastSeen": "2026-11-25",
    "outRuns": 0,
    "plannedCore": 638,
    "plannedTactical": 1500,
@@ -327,7 +335,7 @@
     "total": 225
    },
    "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-24",
+   "lastSeen": "2026-11-25",
    "outRuns": 0,
    "plannedCore": 675,
    "plannedTactical": 1500,
@@ -371,7 +379,7 @@
     "total": 225
    },
    "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-24",
+   "lastSeen": "2026-11-25",
    "outRuns": 0,
    "plannedCore": 450,
    "plannedTactical": 1500,
@@ -407,11 +415,11 @@
     "total": 225
    },
    "episodeStart": "2026-11-20",
-   "lastSeen": "2026-11-24",
+   "lastSeen": "2026-11-25",
    "outRuns": 0,
    "plannedCore": 450,
    "plannedTactical": 1500,
-   "stage": "Denial",
+   "stage": "Panic",
    "status": "due",
    "tranches": [
     {
@@ -426,12 +434,40 @@
      "core": 225,
      "plannedCore": 225,
      "plannedTactical": 0,
-     "tactical": 0,
+     "tactical": 1500,
      "week": "2026-W48",
      "zone": "ADD"
     }
    ],
    "weeksActive": 2,
+   "zone": "ADD"
+  },
+  "VUSA": {
+   "capCore": 1500,
+   "capTactical": 1500,
+   "dueThisWeek": {
+    "core": 225,
+    "tactical": 0,
+    "total": 225
+   },
+   "episodeStart": "2026-11-25",
+   "lastSeen": "2026-11-25",
+   "outRuns": 0,
+   "plannedCore": 225,
+   "plannedTactical": 0,
+   "stage": "Denial",
+   "status": "due",
+   "tranches": [
+    {
+     "core": 225,
+     "plannedCore": 225,
+     "plannedTactical": 0,
+     "tactical": 0,
+     "week": "2026-W48",
+     "zone": "ADD"
+    }
+   ],
+   "weeksActive": 1,
    "zone": "ADD"
   }
  },
